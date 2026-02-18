@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod error;
+mod indexer;
 mod models;
 mod vrchat_log;
 mod watcher;
@@ -30,6 +31,9 @@ pub fn run() {
             let database = db::Database::new(&db_path).expect("failed to initialize database");
             app.manage(db::DbState(std::sync::Mutex::new(database)));
 
+            // Initialize indexer state
+            app.manage(indexer::IndexerState::new());
+
             log::info!("VRCMemory initialized. DB at {:?}", db_path);
 
             Ok(())
@@ -45,6 +49,9 @@ pub fn run() {
             commands::update_settings,
             commands::start_indexing,
             commands::get_indexing_status,
+            commands::scan_photos,
+            commands::parse_logs,
+            commands::select_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

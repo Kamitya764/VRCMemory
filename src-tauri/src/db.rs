@@ -302,4 +302,77 @@ impl Database {
         )?;
         Ok(())
     }
+
+    pub fn update_photo_world(
+        &self,
+        photo_id: &str,
+        world_name: &str,
+        world_id: &str,
+    ) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE photos SET world_name = ?1, world_id = ?2 WHERE id = ?3",
+            params![world_name, world_id, photo_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn photo_exists(&self, filepath: &str) -> AppResult<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE filepath = ?1",
+            params![filepath],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn search_photos_by_text(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> AppResult<(Vec<Photo>, usize)> {
+        let search_pattern = format!("%{}%", query);
+
+        let total: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE
+             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1",
+            params![search_pattern],
+            |row| row.get(0),
+        )?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+             FROM photos WHERE
+             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1
+             ORDER BY datetime DESC LIMIT ?2",
+        )?;
+
+        let photos = stmt
+            .query_map(params![search_pattern, limit], |row| {
+                let tags_str: String = row.get(6)?;
+                let tags: Vec<String> =
+                    serde_json::from_str(&tags_str).unwrap_or_default();
+                Ok(Photo {
+                    id: row.get(0)?,
+                    filepath: row.get(1)?,
+                    filename: row.get(2)?,
+                    datetime: row.get(3)?,
+                    world_name: row.get(4)?,
+                    world_id: row.get(5)?,
+                    tags,
+                    caption: row.get(7)?,
+                    thumbnail_path: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((photos, total))
+    }
+
+    pub fn get_photo_count(&self) -> AppResult<usize> {
+        let count: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))?;
+        Ok(count)
+    }
 }

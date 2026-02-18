@@ -1,4 +1,4 @@
-import type { View } from "../App";
+import type { View } from "@/App";
 
 interface SidebarProps {
   currentView: View;

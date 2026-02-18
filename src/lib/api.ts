@@ -105,3 +105,11 @@ export async function getIndexingStatus(): Promise<{
 }> {
   return invoke("get_indexing_status");
 }
+
+export async function scanPhotos(folder: string): Promise<number> {
+  return invoke("scan_photos", { folder });
+}
+
+export async function parseLogs(logFolder: string): Promise<number> {
+  return invoke("parse_logs", { logFolder });
+}

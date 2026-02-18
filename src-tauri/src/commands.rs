@@ -1,7 +1,11 @@
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+
 use tauri::State;
 
 use crate::db::DbState;
 use crate::error::AppResult;
+use crate::indexer::IndexerState;
 use crate::models::{AppSettings, Friend, IndexingStatus, Photo, SearchResult, WorldVisit};
 
 #[tauri::command]
@@ -20,11 +24,16 @@ pub fn search_photos(
     query: String,
     db: State<DbState>,
 ) -> AppResult<SearchResult> {
-    // Phase 1: Basic metadata search via SQLite
-    // Phase 2 will add vector search via LanceDB + Meilisearch
-    let _ = query;
     let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
-    let (photos, total) = db.get_photos(0, 50)?;
+
+    if query.trim().is_empty() {
+        let (photos, total) = db.get_photos(0, 50)?;
+        return Ok(SearchResult { photos, total });
+    }
+
+    // Phase 1: SQLite LIKE search on metadata
+    // Phase 2 will add vector search via LanceDB + Meilisearch
+    let (photos, total) = db.search_photos_by_text(&query, 50)?;
     Ok(SearchResult { photos, total })
 }
 
@@ -91,18 +100,136 @@ pub fn update_settings(
     Ok(())
 }
 
+/// Scan a photo folder and index all VRChat screenshots
 #[tauri::command]
-pub fn start_indexing() -> AppResult<()> {
-    // TODO: Implement photo folder scanning and indexing
-    log::info!("Indexing started");
+pub fn scan_photos(
+    folder: String,
+    db: State<DbState>,
+    indexer_state: State<IndexerState>,
+) -> AppResult<usize> {
+    let folder_path = PathBuf::from(&folder);
+    let photo_files = crate::indexer::scan_photo_folder(&folder_path)?;
+
+    let total = photo_files.len();
+    indexer_state.total.store(total, Ordering::Relaxed);
+    indexer_state.processed.store(0, Ordering::Relaxed);
+    indexer_state.is_running.store(true, Ordering::Relaxed);
+
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let mut indexed = 0;
+
+    for (i, filepath) in photo_files.iter().enumerate() {
+        let filepath_str = filepath.to_string_lossy().to_string();
+        if !db.photo_exists(&filepath_str)? {
+            crate::indexer::index_photo(&db, filepath)?;
+            indexed += 1;
+        }
+        indexer_state.processed.store(i + 1, Ordering::Relaxed);
+    }
+
+    indexer_state.is_running.store(false, Ordering::Relaxed);
+    log::info!("Scan complete: {} new photos indexed out of {} total", indexed, total);
+    Ok(indexed)
+}
+
+/// Parse VRChat log files and record world visits
+#[tauri::command]
+pub fn parse_logs(
+    log_folder: String,
+    db: State<DbState>,
+) -> AppResult<usize> {
+    let log_path = PathBuf::from(&log_folder);
+    let sessions = crate::indexer::process_log_files(&log_path)?;
+
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let mut recorded = 0;
+
+    for session in &sessions {
+        let visit = WorldVisit {
+            id: uuid::Uuid::new_v4().to_string(),
+            world_name: session.world_name.clone(),
+            world_id: session.world_id.clone(),
+            entered_at: session.entered_at.clone(),
+            left_at: session.left_at.clone(),
+            players: session.players.clone(),
+            instance_type: session.instance_type.clone(),
+            rating: None,
+            notes: None,
+        };
+        db.insert_world_visit(&visit)?;
+        recorded += 1;
+    }
+
+    // Match photos to world sessions
+    let matched = crate::indexer::match_photos_to_sessions(&db, &sessions)?;
+    log::info!("Parsed {} world visits, matched {} photos to worlds", recorded, matched);
+
+    Ok(recorded)
+}
+
+/// Start full indexing (scan photos + parse logs)
+#[tauri::command]
+pub fn start_indexing(
+    db: State<DbState>,
+    indexer_state: State<IndexerState>,
+) -> AppResult<()> {
+    let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let settings = db_guard.get_settings()?;
+    drop(db_guard);
+
+    if !settings.photo_folder.is_empty() {
+        // Re-acquire lock for scan
+        let photo_files = crate::indexer::scan_photo_folder(&PathBuf::from(&settings.photo_folder))?;
+        let total = photo_files.len();
+        indexer_state.total.store(total, Ordering::Relaxed);
+        indexer_state.processed.store(0, Ordering::Relaxed);
+        indexer_state.is_running.store(true, Ordering::Relaxed);
+
+        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+        for (i, filepath) in photo_files.iter().enumerate() {
+            let filepath_str = filepath.to_string_lossy().to_string();
+            if !db_guard.photo_exists(&filepath_str)? {
+                crate::indexer::index_photo(&db_guard, filepath)?;
+            }
+            indexer_state.processed.store(i + 1, Ordering::Relaxed);
+        }
+        drop(db_guard);
+    }
+
+    if !settings.log_folder.is_empty() {
+        let sessions = crate::indexer::process_log_files(&PathBuf::from(&settings.log_folder))?;
+        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+        for session in &sessions {
+            let visit = WorldVisit {
+                id: uuid::Uuid::new_v4().to_string(),
+                world_name: session.world_name.clone(),
+                world_id: session.world_id.clone(),
+                entered_at: session.entered_at.clone(),
+                left_at: session.left_at.clone(),
+                players: session.players.clone(),
+                instance_type: session.instance_type.clone(),
+                rating: None,
+                notes: None,
+            };
+            db_guard.insert_world_visit(&visit)?;
+        }
+        crate::indexer::match_photos_to_sessions(&db_guard, &sessions)?;
+    }
+
+    indexer_state.is_running.store(false, Ordering::Relaxed);
+    log::info!("Indexing completed");
     Ok(())
 }
 
 #[tauri::command]
-pub fn get_indexing_status() -> AppResult<IndexingStatus> {
-    Ok(IndexingStatus {
-        total: 0,
-        processed: 0,
-        is_running: false,
-    })
+pub fn get_indexing_status(indexer_state: State<IndexerState>) -> AppResult<IndexingStatus> {
+    Ok(indexer_state.status())
+}
+
+/// Open a folder selection dialog (returns the selected path)
+#[tauri::command]
+pub fn select_folder() -> AppResult<Option<String>> {
+    // In Tauri v2 the dialog is handled on the frontend side
+    // This is a placeholder - actual dialog uses @tauri-apps/plugin-dialog
+    Ok(None)
 }
