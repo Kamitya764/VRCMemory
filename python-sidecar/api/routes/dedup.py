@@ -1,25 +1,32 @@
 """Deduplication endpoints for computing perceptual hashes."""
 
+import threading
+
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.dedup import ImageHasher
 from core.utils import validate_image_path
 
 router = APIRouter()
 
+MAX_BATCH_SIZE = 100
+
 _hasher: ImageHasher | None = None
+_hasher_lock = threading.Lock()
 
 
 def get_hasher() -> ImageHasher:
     global _hasher
     if _hasher is None:
-        _hasher = ImageHasher()
+        with _hasher_lock:
+            if _hasher is None:
+                _hasher = ImageHasher()
     return _hasher
 
 
 class HashBatchRequest(BaseModel):
-    image_paths: list[str]
+    image_paths: list[str] = Field(..., max_length=MAX_BATCH_SIZE)
 
 
 class HashResultItem(BaseModel):
@@ -33,7 +40,7 @@ class HashBatchResponse(BaseModel):
 
 
 @router.post("/hash", response_model=HashBatchResponse)
-async def hash_batch(request: HashBatchRequest):
+def hash_batch(request: HashBatchRequest):
     """Compute perceptual hashes for a batch of images."""
     hasher = get_hasher()
     results: list[HashResultItem] = []

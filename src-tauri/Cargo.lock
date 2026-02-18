@@ -5192,7 +5192,6 @@ name = "vrcmemory"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "dirs",
  "futures-util",
  "glob",
  "image",

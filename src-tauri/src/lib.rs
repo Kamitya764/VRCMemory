@@ -41,10 +41,11 @@ pub fn run() {
             let app_data_dir = app
                 .path()
                 .app_data_dir()
-                .expect("failed to get app data dir");
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
             std::fs::create_dir_all(&app_data_dir).ok();
             let db_path = app_data_dir.join("vrcmemory.db");
-            let database = db::Database::new(&db_path).expect("failed to initialize database");
+            let database = db::Database::new(&db_path)
+                .map_err(|e| format!("failed to initialize database: {}", e))?;
             app.manage(db::DbState(std::sync::Mutex::new(database)));
 
             // Initialize indexer state

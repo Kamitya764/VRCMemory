@@ -234,70 +234,117 @@ pub fn generate_thumbnail(filepath: &Path, thumbnails_dir: &Path) -> AppResult<P
     Ok(thumb_path)
 }
 
-/// Generate thumbnails for all photos that don't have one
+/// Generate thumbnails for photos that don't have one (paginated to avoid OOM)
 pub fn generate_thumbnails_batch(
     db: &Database,
     thumbnails_dir: &Path,
     state: &IndexerState,
 ) -> AppResult<usize> {
-    let (photos, _) = db.get_photos(0, i64::MAX)?;
-    let without_thumb: Vec<&Photo> = photos
-        .iter()
-        .filter(|p| p.thumbnail_path.is_none())
-        .collect();
-
-    let total = without_thumb.len();
+    // First, count photos without thumbnails to set progress total
+    let total = db.count_photos_without_thumbnail()?;
     state.total.store(total, Ordering::Relaxed);
     state.processed.store(0, Ordering::Relaxed);
     state.is_running.store(true, Ordering::Relaxed);
 
     let mut generated = 0;
-    for (i, photo) in without_thumb.iter().enumerate() {
-        let photo_path = Path::new(&photo.filepath);
-        if photo_path.exists() {
-            match generate_thumbnail(photo_path, thumbnails_dir) {
-                Ok(thumb_path) => {
-                    let thumb_str = thumb_path.to_string_lossy().to_string();
-                    if db.update_photo_thumbnail(&photo.id, &thumb_str).is_ok() {
-                        generated += 1;
+    let mut processed = 0;
+    let page_size: i64 = 200;
+    let mut offset: i64 = 0;
+
+    loop {
+        let (photos, _) = db.get_photos(offset, page_size)?;
+        if photos.is_empty() {
+            break;
+        }
+
+        for photo in &photos {
+            if photo.thumbnail_path.is_some() {
+                continue;
+            }
+            let photo_path = Path::new(&photo.filepath);
+            if photo_path.exists() {
+                match generate_thumbnail(photo_path, thumbnails_dir) {
+                    Ok(thumb_path) => {
+                        let thumb_str = thumb_path.to_string_lossy().to_string();
+                        if db.update_photo_thumbnail(&photo.id, &thumb_str).is_ok() {
+                            generated += 1;
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to generate thumbnail for {}: {}", photo.filepath, e);
                     }
                 }
-                Err(e) => {
-                    log::warn!("Failed to generate thumbnail for {}: {}", photo.filepath, e);
-                }
             }
+            processed += 1;
+            state.processed.store(processed, Ordering::Relaxed);
         }
-        state.processed.store(i + 1, Ordering::Relaxed);
+
+        offset += page_size;
+        if photos.len() < page_size as usize {
+            break;
+        }
     }
 
     state.is_running.store(false, Ordering::Relaxed);
     Ok(generated)
 }
 
-/// Match photos to world sessions based on timestamp
+/// Match photos to world sessions based on timestamp.
+/// Sessions are sorted by entered_at for binary search.
 pub fn match_photos_to_sessions(
     db: &Database,
     sessions: &[WorldSession],
 ) -> AppResult<usize> {
-    let (photos, _) = db.get_photos(0, i64::MAX)?;
-    let mut matched = 0;
+    if sessions.is_empty() {
+        return Ok(0);
+    }
 
-    for photo in &photos {
-        if photo.world_name.is_some() {
-            continue; // Already matched
+    // Sort sessions by entered_at for binary search
+    let mut sorted_sessions: Vec<&WorldSession> = sessions.iter().collect();
+    sorted_sessions.sort_by(|a, b| {
+        normalize_timestamp(&a.entered_at).cmp(&normalize_timestamp(&b.entered_at))
+    });
+
+    // Paginate photo loading to avoid OOM
+    let mut matched = 0;
+    let page_size: i64 = 500;
+    let mut offset: i64 = 0;
+
+    loop {
+        let (photos, _) = db.get_photos(offset, page_size)?;
+        if photos.is_empty() {
+            break;
         }
 
-        // Find the session that contains this photo's timestamp
-        for session in sessions {
-            if is_timestamp_in_session(&photo.datetime, session) {
-                db.update_photo_world(
-                    &photo.id,
-                    &session.world_name,
-                    &session.world_id,
-                )?;
-                matched += 1;
-                break;
+        for photo in &photos {
+            if photo.world_name.is_some() {
+                continue; // Already matched
             }
+
+            let photo_ts = normalize_timestamp(&photo.datetime);
+
+            // Binary search: find the last session that started before/at the photo time
+            let idx = sorted_sessions.partition_point(|s| {
+                normalize_timestamp(&s.entered_at) <= photo_ts
+            });
+
+            // Check the session just before this point (the one that started most recently before the photo)
+            if idx > 0 {
+                let session = sorted_sessions[idx - 1];
+                if is_timestamp_in_session(&photo.datetime, session) {
+                    db.update_photo_world(
+                        &photo.id,
+                        &session.world_name,
+                        &session.world_id,
+                    )?;
+                    matched += 1;
+                }
+            }
+        }
+
+        offset += page_size;
+        if photos.len() < page_size as usize {
+            break;
         }
     }
 

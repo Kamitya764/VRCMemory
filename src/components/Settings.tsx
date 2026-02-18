@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { APP_VERSION } from "@/lib/constants";
 import {
   getSettings,
   updateSettings,
@@ -771,7 +772,7 @@ function Settings() {
       <section className="space-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <h3 className="font-medium">アプリ情報</h3>
         <div className="space-y-1 text-sm text-[var(--color-text-muted)]">
-          <p>VRCMemory v0.1.0</p>
+          <p>VRCMemory {APP_VERSION}</p>
           <p>データはすべてローカルに保存されます。</p>
         </div>
       </section>

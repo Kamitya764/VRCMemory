@@ -17,6 +17,8 @@ pub fn get_photos(
     limit: i64,
     db: State<DbState>,
 ) -> AppResult<SearchResult> {
+    let offset = offset.max(0);
+    let limit = limit.clamp(1, 1000);
     let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     let (photos, total) = db.get_photos(offset, limit)?;
     Ok(SearchResult { photos, total })
@@ -66,6 +68,13 @@ pub fn add_friend(
     name: String,
     db: State<DbState>,
 ) -> AppResult<Friend> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Validation("フレンド名を入力してください".to_string()));
+    }
+    if name.len() > 200 {
+        return Err(AppError::Validation("フレンド名が長すぎます（最大200文字）".to_string()));
+    }
     let friend = Friend {
         id: uuid::Uuid::new_v4().to_string(),
         name,
@@ -93,6 +102,12 @@ pub fn get_settings(db: State<DbState>) -> AppResult<AppSettings> {
     db.get_settings()
 }
 
+/// Allowed settings keys (whitelist)
+const ALLOWED_SETTINGS: &[&str] = &[
+    "photo_folder", "log_folder", "theme", "gpu_enabled",
+    "batch_size", "auto_caption", "auto_ocr", "language",
+];
+
 #[tauri::command]
 pub fn update_settings(
     settings: serde_json::Value,
@@ -101,6 +116,9 @@ pub fn update_settings(
     let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     if let Some(obj) = settings.as_object() {
         for (key, value) in obj {
+            if !ALLOWED_SETTINGS.contains(&key.as_str()) {
+                return Err(AppError::Validation(format!("Unknown setting key: {}", key)));
+            }
             let val_str = match value {
                 serde_json::Value::String(s) => s.clone(),
                 serde_json::Value::Bool(b) => b.to_string(),
@@ -346,6 +364,11 @@ pub fn update_world_rating(
     rating: Option<i32>,
     db: State<DbState>,
 ) -> AppResult<()> {
+    if let Some(r) = rating {
+        if !(1..=5).contains(&r) {
+            return Err(AppError::Validation("Rating must be between 1 and 5".to_string()));
+        }
+    }
     let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_world_visit_rating(&id, rating)
 }
@@ -565,6 +588,8 @@ pub fn filter_photos(
     limit: i64,
     db: State<DbState>,
 ) -> AppResult<SearchResult> {
+    let offset = offset.max(0);
+    let limit = limit.clamp(1, 1000);
     let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let (photos, total) = db.filter_photos(
         world_name.as_deref(),
@@ -596,13 +621,28 @@ pub fn get_world_history_filtered(
 
 /// Validate that a file path has an allowed extension and no path traversal
 fn validate_export_path(path: &str, allowed_ext: &str) -> AppResult<PathBuf> {
-    if path.contains("..") {
-        return Err(AppError::Parse("Path traversal detected".to_string()));
-    }
     let p = PathBuf::from(path);
+
+    // Check for path traversal via component inspection (handles both / and \ separators)
+    for component in p.components() {
+        if let std::path::Component::ParentDir = component {
+            return Err(AppError::Validation("Path traversal detected".to_string()));
+        }
+    }
+
+    // Reject paths that aren't absolute
+    if !p.is_absolute() {
+        return Err(AppError::Validation("Path must be absolute".to_string()));
+    }
+
+    // Reject symlinks to prevent symlink-based traversal
+    if p.exists() && std::fs::symlink_metadata(&p).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        return Err(AppError::Validation("Symlinks are not allowed".to_string()));
+    }
+
     match p.extension().and_then(|e| e.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case(allowed_ext) => Ok(p),
-        _ => Err(AppError::Parse(format!("File must have .{} extension", allowed_ext))),
+        _ => Err(AppError::Validation(format!("File must have .{} extension", allowed_ext))),
     }
 }
 

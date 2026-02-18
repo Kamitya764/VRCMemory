@@ -1,19 +1,26 @@
 """Person detection endpoints using YOLOv8."""
 
-from fastapi import APIRouter, UploadFile, File
+import threading
+
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from core.detect import PersonDetector
 
 router = APIRouter()
 
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
 _detector: PersonDetector | None = None
+_detector_lock = threading.Lock()
 
 
 def get_detector() -> PersonDetector:
     global _detector
     if _detector is None:
-        _detector = PersonDetector()
+        with _detector_lock:
+            if _detector is None:
+                _detector = PersonDetector()
     return _detector
 
 
@@ -32,9 +39,11 @@ class DetectionResponse(BaseModel):
 
 
 @router.post("/persons", response_model=DetectionResponse)
-async def detect_persons(file: UploadFile = File(...)):
+def detect_persons(file: UploadFile = File(...)):
     """Detect persons/avatars in an uploaded image."""
-    image_data = await file.read()
+    image_data = file.file.read()
+    if len(image_data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
     detector = get_detector()
     detections = detector.detect(image_data)
     return DetectionResponse(

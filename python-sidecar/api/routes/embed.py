@@ -1,25 +1,20 @@
 """Embedding endpoints for text and image vectors."""
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from core.embed import EmbeddingEngine
+from core.instances import get_embedding_engine
 from core.utils import validate_image_path
 
 router = APIRouter()
 
-_engine: EmbeddingEngine | None = None
-
-
-def get_engine() -> EmbeddingEngine:
-    global _engine
-    if _engine is None:
-        _engine = EmbeddingEngine()
-    return _engine
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_BATCH_TEXTS = 1000
+MAX_BATCH_IMAGES = 100
 
 
 class TextEmbedRequest(BaseModel):
-    texts: list[str]
+    texts: list[str] = Field(..., max_length=MAX_BATCH_TEXTS)
 
 
 class EmbedResponse(BaseModel):
@@ -28,9 +23,9 @@ class EmbedResponse(BaseModel):
 
 
 @router.post("/text", response_model=EmbedResponse)
-async def embed_text(request: TextEmbedRequest):
+def embed_text(request: TextEmbedRequest):
     """Generate text embeddings using multilingual-e5-large."""
-    engine = get_engine()
+    engine = get_embedding_engine()
     vectors = engine.embed_texts(request.texts)
     return EmbedResponse(
         vectors=vectors,
@@ -39,22 +34,24 @@ async def embed_text(request: TextEmbedRequest):
 
 
 @router.post("/image", response_model=EmbedResponse)
-async def embed_image(file: UploadFile = File(...)):
+def embed_image(file: UploadFile = File(...)):
     """Generate image embedding using Japanese CLIP."""
-    image_data = await file.read()
-    engine = get_engine()
+    image_data = file.file.read()
+    if len(image_data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+    engine = get_embedding_engine()
     vector = engine.embed_image(image_data)
     return EmbedResponse(vectors=[vector], dimension=len(vector))
 
 
 class BatchImageEmbedRequest(BaseModel):
-    image_paths: list[str]
+    image_paths: list[str] = Field(..., max_length=MAX_BATCH_IMAGES)
 
 
 @router.post("/image/batch", response_model=EmbedResponse)
-async def batch_embed_images(request: BatchImageEmbedRequest):
+def batch_embed_images(request: BatchImageEmbedRequest):
     """Generate image embeddings for multiple images."""
-    engine = get_engine()
+    engine = get_embedding_engine()
     vectors = []
     for path in request.image_paths:
         try:

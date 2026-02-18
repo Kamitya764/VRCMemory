@@ -24,7 +24,18 @@ function FriendManager() {
   const [profileId, setProfileId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadFriends();
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getFriends();
+        if (!cancelled) setFriends(data);
+      } catch {
+        // Not running in Tauri
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const loadFriends = async () => {
@@ -517,6 +528,13 @@ function NotesArea({
 }) {
   const [text, setText] = useState(value);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Cleanup debounce timer on unmount to prevent stale saves
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const debouncedSave = (newText: string) => {
     if (timerRef.current) clearTimeout(timerRef.current);

@@ -19,6 +19,9 @@ async def lifespan(app: FastAPI):
     # Models will be loaded lazily on first request
     yield
     logger.info("Shutting down VRCMemory AI sidecar...")
+    from core.instances import cleanup_all
+    cleanup_all()
+    logger.info("Cleanup complete.")
 
 
 app = FastAPI(
