@@ -134,7 +134,7 @@ jobs:
           DELIM="SIGNING_KEY_EOF_$$"
           {
             echo "CLEAN_SIGNING_KEY<<${DELIM}"
-            printf '%s\n%s' "$HEADER" "$BODY"
+            printf '%s\n%s\n' "$HEADER" "$BODY"
             echo "${DELIM}"
           } >> "$GITHUB_ENV"
 
