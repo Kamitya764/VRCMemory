@@ -268,6 +268,12 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_friend(&self, id: &str) -> AppResult<()> {
+        self.conn
+            .execute("DELETE FROM friends WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     // Settings operations
     pub fn get_settings(&self) -> AppResult<AppSettings> {
         let mut settings = AppSettings::default();

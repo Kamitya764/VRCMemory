@@ -76,6 +76,15 @@ pub fn add_friend(
 }
 
 #[tauri::command]
+pub fn delete_friend(
+    id: String,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    db.delete_friend(&id)
+}
+
+#[tauri::command]
 pub fn get_settings(db: State<DbState>) -> AppResult<AppSettings> {
     let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
     db.get_settings()

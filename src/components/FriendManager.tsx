@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getFriends, addFriend } from "@/lib/api";
+import { getFriends, addFriend, deleteFriend } from "@/lib/api";
 import type { Friend } from "@/lib/api";
 
 function FriendManager() {
@@ -115,7 +115,7 @@ function FriendManager() {
           {friends.map((friend) => (
             <div
               key={friend.id}
-              className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:bg-[var(--color-surface-hover)]"
+              className="group flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:bg-[var(--color-surface-hover)]"
             >
               {/* Avatar placeholder */}
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-lg">
@@ -134,6 +134,24 @@ function FriendManager() {
               <span className="text-xs text-[var(--color-text-muted)]">
                 {formatDate(friend.created_at)}
               </span>
+
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await deleteFriend(friend.id);
+                    await loadFriends();
+                  } catch {
+                    // Error
+                  }
+                }}
+                className="rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
+                title="削除"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
             </div>
           ))}
         </div>

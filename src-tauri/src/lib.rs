@@ -45,6 +45,7 @@ pub fn run() {
             commands::get_world_history,
             commands::get_friends,
             commands::add_friend,
+            commands::delete_friend,
             commands::get_settings,
             commands::update_settings,
             commands::start_indexing,

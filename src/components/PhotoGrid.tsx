@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { View } from "@/App";
 import type { Photo } from "@/lib/api";
-import { searchPhotos } from "@/lib/api";
+import { searchPhotos, getPhotos } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
+
+const PAGE_SIZE = 60;
 
 interface PhotoGridProps {
   view: View;
@@ -15,20 +17,38 @@ interface PhotoGridProps {
 function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   const [displayPhotos, setDisplayPhotos] = useState<Photo[]>(photos);
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Debounced search
   useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
     if (searchQuery.trim()) {
-      searchPhotos(searchQuery)
-        .then((result) => setDisplayPhotos(result.photos))
-        .catch(() => setDisplayPhotos(photos));
+      debounceRef.current = setTimeout(() => {
+        searchPhotos(searchQuery)
+          .then((result) => {
+            setDisplayPhotos(result.photos);
+            setVisibleCount(PAGE_SIZE);
+            setHasMore(result.photos.length > PAGE_SIZE);
+          })
+          .catch(() => setDisplayPhotos(photos));
+      }, 300);
     } else {
       setDisplayPhotos(photos);
+      setVisibleCount(PAGE_SIZE);
+      setHasMore(photos.length > PAGE_SIZE);
     }
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [searchQuery, photos]);
 
   const filteredPhotos = (() => {
     if (view === "recent") {
-      // Last 7 days
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
       return displayPhotos.filter(
@@ -38,20 +58,43 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     return displayPhotos;
   })();
 
-  const viewLabels: Record<View, string> = {
+  const visiblePhotos = filteredPhotos.slice(0, visibleCount);
+
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+
+    if (!searchQuery.trim()) {
+      try {
+        const result = await getPhotos(displayPhotos.length, PAGE_SIZE);
+        if (result.photos.length > 0) {
+          setDisplayPhotos((prev) => [...prev, ...result.photos]);
+          setHasMore(displayPhotos.length + result.photos.length < result.total);
+        } else {
+          setHasMore(false);
+        }
+      } catch {
+        // Error
+      }
+    } else {
+      setVisibleCount((prev) => prev + PAGE_SIZE);
+      setHasMore(filteredPhotos.length > visibleCount + PAGE_SIZE);
+    }
+
+    setLoadingMore(false);
+  }, [loadingMore, searchQuery, displayPhotos.length, filteredPhotos.length, visibleCount]);
+
+  const viewLabels: Record<string, string> = {
     all: "すべての写真",
     recent: "最近の写真",
     albums: "アルバム",
-    friends: "フレンド",
-    worlds: "ワールド履歴",
-    analytics: "プレイスタイル分析",
   };
 
   if (filteredPhotos.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-[var(--color-text-muted)]">
         <h2 className="mb-4 text-xl font-semibold text-[var(--color-text)]">
-          {viewLabels[view]}
+          {viewLabels[view] || view}
         </h2>
         {searchQuery ? (
           <p>
@@ -81,7 +124,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
         <h2 className="text-lg font-semibold">
           {searchQuery
             ? `「${searchQuery}」の検索結果`
-            : viewLabels[view]}
+            : viewLabels[view] || view}
         </h2>
         <span className="text-sm text-[var(--color-text-muted)]">
           {filteredPhotos.length} 枚
@@ -89,7 +132,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {filteredPhotos.map((photo) => (
+        {visiblePhotos.map((photo) => (
           <button
             key={photo.id}
             onClick={() => setSelectedPhotoId(photo.id)}
@@ -102,7 +145,9 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
               loading="lazy"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
-                e.currentTarget.nextElementSibling?.classList.remove("hidden");
+                if (e.currentTarget.nextElementSibling) {
+                  (e.currentTarget.nextElementSibling as HTMLElement).style.display = "flex";
+                }
               }}
             />
             <div className="hidden h-full w-full items-center justify-center bg-[var(--color-bg)] text-3xl">
@@ -121,6 +166,19 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
           </button>
         ))}
       </div>
+
+      {/* Load more */}
+      {(hasMore || filteredPhotos.length > visibleCount) && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="rounded-lg border border-[var(--color-border)] px-6 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] disabled:opacity-50"
+          >
+            {loadingMore ? "読み込み中..." : "もっと見る"}
+          </button>
+        </div>
+      )}
 
       <PhotoDetail
         photoId={selectedPhotoId}

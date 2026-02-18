@@ -5,6 +5,7 @@ import PhotoGrid from "@/components/PhotoGrid";
 import WorldHistory from "@/components/WorldHistory";
 import FriendManager from "@/components/FriendManager";
 import Analytics from "@/components/Analytics";
+import Settings from "@/components/Settings";
 import StatusBar from "@/components/StatusBar";
 import SetupWizard from "@/components/SetupWizard";
 import { getSettings, getPhotos } from "@/lib/api";
@@ -16,7 +17,8 @@ export type View =
   | "albums"
   | "friends"
   | "worlds"
-  | "analytics";
+  | "analytics"
+  | "settings";
 
 function App() {
   const [currentView, setCurrentView] = useState<View>("all");
@@ -91,6 +93,8 @@ function App() {
         return <FriendManager />;
       case "analytics":
         return <Analytics />;
+      case "settings":
+        return <Settings />;
       default:
         return (
           <PhotoGrid

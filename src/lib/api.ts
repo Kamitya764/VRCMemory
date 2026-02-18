@@ -64,7 +64,7 @@ export async function searchPhotos(query: string): Promise<SearchResult> {
   return invoke("search_photos", { query });
 }
 
-export async function getPhotoDetail(id: string): Promise<Photo> {
+export async function getPhotoDetail(id: string): Promise<Photo | null> {
   return invoke("get_photo_detail", { id });
 }
 
@@ -80,6 +80,10 @@ export async function getFriends(): Promise<Friend[]> {
 
 export async function addFriend(name: string): Promise<Friend> {
   return invoke("add_friend", { name });
+}
+
+export async function deleteFriend(id: string): Promise<void> {
+  return invoke("delete_friend", { id });
 }
 
 // Settings commands

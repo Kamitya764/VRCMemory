@@ -5,7 +5,7 @@ interface SidebarProps {
   onViewChange: (view: View) => void;
 }
 
-const navItems: { view: View; label: string; icon: string }[] = [
+const mainItems: { view: View; label: string; icon: string }[] = [
   { view: "all", label: "すべて", icon: "🖼" },
   { view: "recent", label: "最近", icon: "🕐" },
   { view: "albums", label: "アルバム", icon: "📁" },
@@ -16,22 +16,49 @@ const navItems: { view: View; label: string; icon: string }[] = [
 
 function Sidebar({ currentView, onViewChange }: SidebarProps) {
   return (
-    <nav className="flex w-48 flex-col gap-1 border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-      {navItems.map((item) => (
-        <button
-          key={item.view}
-          onClick={() => onViewChange(item.view)}
-          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-            currentView === item.view
-              ? "bg-[var(--color-primary)] text-white"
-              : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]"
-          }`}
-        >
-          <span>{item.icon}</span>
-          <span>{item.label}</span>
-        </button>
-      ))}
+    <nav className="flex w-48 flex-col justify-between border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+      <div className="flex flex-col gap-1">
+        {mainItems.map((item) => (
+          <NavButton
+            key={item.view}
+            item={item}
+            active={currentView === item.view}
+            onClick={() => onViewChange(item.view)}
+          />
+        ))}
+      </div>
+      <div className="border-t border-[var(--color-border)] pt-2">
+        <NavButton
+          item={{ view: "settings", label: "設定", icon: "⚙" }}
+          active={currentView === "settings"}
+          onClick={() => onViewChange("settings")}
+        />
+      </div>
     </nav>
+  );
+}
+
+function NavButton({
+  item,
+  active,
+  onClick,
+}: {
+  item: { view: View; label: string; icon: string };
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+        active
+          ? "bg-[var(--color-primary)] text-white"
+          : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]"
+      }`}
+    >
+      <span>{item.icon}</span>
+      <span>{item.label}</span>
+    </button>
   );
 }
 
