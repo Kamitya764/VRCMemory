@@ -3,6 +3,8 @@ mod db;
 mod error;
 mod indexer;
 mod models;
+mod process_manager;
+mod setup;
 #[allow(dead_code)]
 mod sidecar;
 mod vrchat_log;
@@ -23,6 +25,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -48,8 +52,30 @@ pub fn run() {
             // Initialize watcher state (starts empty, activated after settings are loaded)
             app.manage(WatcherState(Mutex::new(None)));
 
-            // Initialize sidecar client
+            // Initialize sidecar HTTP client
             app.manage(sidecar::SidecarState::new());
+
+            // Initialize runtime paths for setup & process management
+            let sidecar_dir = setup::resolve_sidecar_dir(app.handle());
+            let runtime_paths = setup::RuntimePaths::new(&app_data_dir, &sidecar_dir);
+            app.manage(runtime_paths.clone());
+
+            // Initialize process manager and auto-start services if environment is ready
+            let process_mgr = process_manager::ProcessManager::new();
+            process_mgr.set_paths(runtime_paths.clone());
+            app.manage(process_mgr);
+
+            // Auto-start managed services in background
+            let handle_for_services = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Small delay so the window shows up first
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+                let pm = handle_for_services.state::<process_manager::ProcessManager>();
+                if let Err(e) = pm.start_all_if_ready() {
+                    log::warn!("Auto-start services failed: {}", e);
+                }
+            });
 
             // Start watcher if settings already have folders configured
             let handle = app.handle().clone();
@@ -60,6 +86,13 @@ pub fn run() {
             log::info!("VRCMemory initialized. DB at {:?}", db_path);
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Gracefully stop managed processes when the app window is closed
+            if let tauri::WindowEvent::Destroyed = event {
+                let pm = window.app_handle().state::<process_manager::ProcessManager>();
+                pm.stop_all();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_photos,
@@ -117,6 +150,12 @@ pub fn run() {
             commands::find_duplicates,
             commands::suggest_auto_albums,
             commands::create_auto_album,
+            // Environment setup & process management
+            commands::get_setup_status,
+            commands::run_environment_setup,
+            commands::start_services,
+            commands::stop_services,
+            commands::get_services_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -11,6 +11,7 @@ import StatusBar from "@/components/StatusBar";
 import SetupWizard from "@/components/SetupWizard";
 import ToastContainer from "@/components/ToastContainer";
 import ShortcutHelp from "@/components/ShortcutHelp";
+import UpdateChecker from "@/components/UpdateChecker";
 import { listen } from "@tauri-apps/api/event";
 import { getSettings, getPhotos, updateSettings } from "@/lib/api";
 import type { Photo } from "@/lib/api";
@@ -199,6 +200,7 @@ function App() {
       <StatusBar photoCount={photoCount} />
       <ToastContainer />
       <ShortcutHelp open={showShortcutHelp} onClose={() => setShowShortcutHelp(false)} />
+      <UpdateChecker />
     </div>
   );
 }

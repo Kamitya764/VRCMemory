@@ -11,11 +11,17 @@ pub enum AppError {
     #[error("Parse error: {0}")]
     Parse(String),
 
+    #[error("Lock error: {0}")]
+    Lock(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 
     #[error("Sidecar error: {0}")]
     Sidecar(String),
+
+    #[error("Setup error: {0}")]
+    Setup(String),
 }
 
 impl Serialize for AppError {

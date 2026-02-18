@@ -427,3 +427,39 @@ export async function createAutoAlbum(
 ): Promise<Album> {
   return invoke("create_auto_album", { name, photoIds });
 }
+
+// =============================================================================
+// Environment setup & process management
+// =============================================================================
+
+export interface SetupStatus {
+  python_installed: boolean;
+  packages_installed: boolean;
+  meilisearch_installed: boolean;
+  all_ready: boolean;
+}
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+  return invoke("get_setup_status");
+}
+
+export async function runEnvironmentSetup(): Promise<void> {
+  return invoke("run_environment_setup");
+}
+
+export async function startServices(): Promise<void> {
+  return invoke("start_services");
+}
+
+export async function stopServices(): Promise<void> {
+  return invoke("stop_services");
+}
+
+export interface ServicesStatus {
+  meilisearch_running: boolean;
+  python_sidecar_running: boolean;
+}
+
+export async function getServicesStatus(): Promise<ServicesStatus> {
+  return invoke("get_services_status");
+}

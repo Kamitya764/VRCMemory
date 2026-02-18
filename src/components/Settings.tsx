@@ -18,9 +18,13 @@ import {
   findDuplicates,
   suggestAutoAlbums,
   createAutoAlbum,
+  getSetupStatus,
+  runEnvironmentSetup,
+  startServices,
+  getServicesStatus,
 } from "@/lib/api";
 import { showToast } from "@/lib/toast";
-import type { AppSettings, SidecarStatus, SearchIndexStatus, DuplicateGroup, AutoAlbumSuggestion } from "@/lib/api";
+import type { AppSettings, SidecarStatus, SearchIndexStatus, DuplicateGroup, AutoAlbumSuggestion, SetupStatus, ServicesStatus } from "@/lib/api";
 
 function Settings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -48,6 +52,9 @@ function Settings() {
   const [loadingDuplicates, setLoadingDuplicates] = useState(false);
   const [suggestions, setSuggestions] = useState<AutoAlbumSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [envStatus, setEnvStatus] = useState<SetupStatus | null>(null);
+  const [servicesStatus, setServicesStatus] = useState<ServicesStatus | null>(null);
+  const [envSetupRunning, setEnvSetupRunning] = useState(false);
   const indexPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Cleanup polling interval on unmount
@@ -79,6 +86,10 @@ function Settings() {
         }
       })
       .catch(() => setSidecar({ available: false, gpu_available: false }));
+
+    // Check environment & services status
+    getSetupStatus().then(setEnvStatus).catch(() => {});
+    getServicesStatus().then(setServicesStatus).catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -239,10 +250,98 @@ function Settings() {
         </div>
       </section>
 
-      {/* AI Sidecar */}
+      {/* AI Environment */}
       <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
         <div className="flex items-center justify-between">
-          <h3 className="font-medium">AI処理 (サイドカー)</h3>
+          <h3 className="font-medium">AI環境</h3>
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${
+                envStatus?.all_ready ? "bg-green-400" : "bg-yellow-400"
+              }`}
+            />
+            <span className="text-xs text-[var(--color-text-muted)]">
+              {envStatus?.all_ready ? "セットアップ済み" : "未セットアップ"}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-2 text-sm text-[var(--color-text-muted)]">
+          <div className="flex items-center gap-2">
+            <span className={envStatus?.python_installed ? "text-green-400" : "text-[var(--color-text-muted)]"}>
+              {envStatus?.python_installed ? "✓" : "○"} Python
+            </span>
+            <span className={envStatus?.meilisearch_installed ? "text-green-400" : "text-[var(--color-text-muted)]"}>
+              {envStatus?.meilisearch_installed ? "✓" : "○"} Meilisearch
+            </span>
+            <span className={envStatus?.packages_installed ? "text-green-400" : "text-[var(--color-text-muted)]"}>
+              {envStatus?.packages_installed ? "✓" : "○"} AIパッケージ
+            </span>
+          </div>
+          {servicesStatus && envStatus?.all_ready && (
+            <div className="flex items-center gap-3 text-xs">
+              <span>
+                Meilisearch: {servicesStatus.meilisearch_running ? "稼働中" : "停止"}
+              </span>
+              <span>
+                Python: {servicesStatus.python_sidecar_running ? "稼働中" : "停止"}
+              </span>
+            </div>
+          )}
+          <p className="text-xs">
+            アプリ専用の隔離環境のため、PCの既存Python環境に影響しません。
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {!envStatus?.all_ready && (
+            <button
+              onClick={async () => {
+                setEnvSetupRunning(true);
+                try {
+                  await runEnvironmentSetup();
+                  const status = await getSetupStatus();
+                  setEnvStatus(status);
+                  showToast("AI環境のセットアップが完了しました", "success");
+                  // Refresh sidecar status
+                  getSidecarStatus().then(setSidecar).catch(() => {});
+                  getServicesStatus().then(setServicesStatus).catch(() => {});
+                } catch {
+                  showToast("セットアップに失敗しました", "error");
+                } finally {
+                  setEnvSetupRunning(false);
+                }
+              }}
+              disabled={envSetupRunning}
+              className="rounded-lg bg-[var(--color-primary)] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+            >
+              {envSetupRunning ? "セットアップ中..." : "AI環境をセットアップ"}
+            </button>
+          )}
+          {envStatus?.all_ready && (
+            <button
+              onClick={async () => {
+                try {
+                  await startServices();
+                  showToast("サービスを再起動しました", "success");
+                  getServicesStatus().then(setServicesStatus).catch(() => {});
+                  getSidecarStatus().then(setSidecar).catch(() => {});
+                } catch {
+                  showToast("サービスの再起動に失敗しました", "error");
+                }
+              }}
+              className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)]"
+            >
+              サービス再起動
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* AI Processing */}
+      <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium">AI処理</h3>
           {sidecar && (
             <div className="flex items-center gap-2">
               <span
@@ -260,13 +359,6 @@ function Settings() {
             </div>
           )}
         </div>
-
-        <p className="text-sm text-[var(--color-text-muted)]">
-          Python AIサイドカーを使って写真にキャプションを自動生成します。
-          <br />
-          <code className="text-xs">cd python-sidecar && python main.py</code>{" "}
-          でサイドカーを起動してください。
-        </p>
 
         <div className="flex items-center gap-3">
           <button
