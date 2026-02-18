@@ -58,7 +58,7 @@ jobs:
 
       - name: Rust clippy
         working-directory: src-tauri
-        run: cargo clippy -- -W clippy::all
+        run: cargo clippy -- -D warnings
 
       - name: Rust tests
         working-directory: src-tauri

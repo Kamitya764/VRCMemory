@@ -64,7 +64,6 @@ const GET_PIP_URL: &str = "https://bootstrap.pypa.io/get-pip.py";
 /// ```
 #[derive(Debug, Clone)]
 pub struct RuntimePaths {
-    pub app_data_dir: PathBuf,
     pub runtime_dir: PathBuf,
     pub python_dir: PathBuf,
     pub python_exe: PathBuf,
@@ -81,7 +80,6 @@ impl RuntimePaths {
         let meilisearch_dir = runtime_dir.join("meilisearch");
 
         Self {
-            app_data_dir: app_data_dir.to_path_buf(),
             python_exe: python_dir.join(platform::PYTHON_EXE),
             python_dir,
             meilisearch_exe: meilisearch_dir.join(platform::MEILISEARCH_BIN),
