@@ -5,6 +5,7 @@ import PhotoGrid from "@/components/PhotoGrid";
 import WorldHistory from "@/components/WorldHistory";
 import FriendManager from "@/components/FriendManager";
 import Analytics from "@/components/Analytics";
+import AlbumView from "@/components/AlbumView";
 import Settings from "@/components/Settings";
 import StatusBar from "@/components/StatusBar";
 import SetupWizard from "@/components/SetupWizard";
@@ -105,6 +106,8 @@ function App() {
         return <WorldHistory />;
       case "friends":
         return <FriendManager />;
+      case "albums":
+        return <AlbumView />;
       case "analytics":
         return <Analytics />;
       case "settings":

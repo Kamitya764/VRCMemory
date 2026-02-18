@@ -87,6 +87,14 @@ pub fn run() {
             commands::update_friend_name,
             commands::generate_thumbnails,
             commands::get_photo_stats,
+            commands::get_albums,
+            commands::create_album,
+            commands::delete_album,
+            commands::update_album,
+            commands::add_photos_to_album,
+            commands::remove_photos_from_album,
+            commands::get_album_photos,
+            commands::update_photo_tags,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

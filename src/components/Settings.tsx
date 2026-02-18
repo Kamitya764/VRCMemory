@@ -7,6 +7,7 @@ import {
   startWatcher,
   getSidecarStatus,
   generateCaptions,
+  generateThumbnails,
 } from "@/lib/api";
 import type { AppSettings, SidecarStatus } from "@/lib/api";
 
@@ -21,6 +22,8 @@ function Settings() {
   const [sidecar, setSidecar] = useState<SidecarStatus | null>(null);
   const [captioning, setCaptioning] = useState(false);
   const [captionStatus, setCaptionStatus] = useState("");
+  const [generatingThumbs, setGeneratingThumbs] = useState(false);
+  const [thumbStatus, setThumbStatus] = useState("");
 
   useEffect(() => {
     getSettings()
@@ -238,6 +241,39 @@ function Settings() {
           {captionStatus && (
             <span className="text-sm text-[var(--color-text-muted)]">
               {captionStatus}
+            </span>
+          )}
+        </div>
+      </section>
+
+      {/* Thumbnail generation */}
+      <section className="space-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <h3 className="font-medium">サムネイル生成</h3>
+        <p className="text-sm text-[var(--color-text-muted)]">
+          写真のサムネイルを生成して、グリッド表示を高速化します。
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              setGeneratingThumbs(true);
+              setThumbStatus("生成中...");
+              try {
+                const count = await generateThumbnails();
+                setThumbStatus(`${count} 枚のサムネイルを生成しました`);
+              } catch {
+                setThumbStatus("サムネイル生成に失敗しました");
+              } finally {
+                setGeneratingThumbs(false);
+              }
+            }}
+            disabled={generatingThumbs}
+            className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+          >
+            {generatingThumbs ? "生成中..." : "サムネイル生成"}
+          </button>
+          {thumbStatus && (
+            <span className="text-sm text-[var(--color-text-muted)]">
+              {thumbStatus}
             </span>
           )}
         </div>

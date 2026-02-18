@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { View } from "@/App";
 import type { Photo } from "@/lib/api";
-import { searchPhotos, getPhotos, deletePhotos } from "@/lib/api";
+import { searchPhotos, getPhotos, deletePhotos, getAlbums, addPhotosToAlbum } from "@/lib/api";
+import type { Album } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
 
@@ -25,6 +26,8 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   const [sortMode, setSortMode] = useState<SortMode>("date_desc");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [showAlbumPicker, setShowAlbumPicker] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -159,6 +162,27 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     }
   };
 
+  const handleAddToAlbum = async (albumId: string) => {
+    if (selectedIds.size === 0) return;
+    try {
+      await addPhotosToAlbum(albumId, [...selectedIds]);
+      setShowAlbumPicker(false);
+      clearSelection();
+    } catch {
+      // Error
+    }
+  };
+
+  const openAlbumPicker = async () => {
+    try {
+      const data = await getAlbums();
+      setAlbums(data);
+      setShowAlbumPicker(true);
+    } catch {
+      // Error
+    }
+  };
+
   const handlePhotoClick = (photo: Photo) => {
     if (selectionMode) {
       toggleSelection(photo.id);
@@ -230,12 +254,44 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
                 全選択
               </button>
               {selectedIds.size > 0 && (
-                <button
-                  onClick={handleDeleteSelected}
-                  className="rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
-                >
-                  削除
-                </button>
+                <>
+                  <div className="relative">
+                    <button
+                      onClick={openAlbumPicker}
+                      className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                    >
+                      アルバムに追加
+                    </button>
+                    {showAlbumPicker && (
+                      <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
+                        {albums.length === 0 ? (
+                          <p className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                            アルバムがありません
+                          </p>
+                        ) : (
+                          albums.map((album) => (
+                            <button
+                              key={album.id}
+                              onClick={() => handleAddToAlbum(album.id)}
+                              className="w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--color-surface-hover)]"
+                            >
+                              {album.name}
+                              <span className="ml-1 text-[var(--color-text-muted)]">
+                                ({album.photo_count})
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleDeleteSelected}
+                    className="rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                  >
+                    削除
+                  </button>
+                </>
               )}
               <button
                 onClick={clearSelection}

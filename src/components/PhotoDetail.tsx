@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getPhotoDetail } from "@/lib/api";
+import { getPhotoDetail, updatePhotoTags } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import type { Photo } from "@/lib/api";
 
@@ -170,25 +170,15 @@ function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProp
                 )}
 
                 {/* Tags */}
-                <div>
-                  <span className="text-[var(--color-text-muted)]">タグ</span>
-                  {photo.tags.length > 0 ? (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {photo.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded-full bg-[var(--color-primary)]/10 px-2 py-0.5 text-xs text-[var(--color-primary)]"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-[var(--color-text-muted)]">
-                      なし
-                    </p>
-                  )}
-                </div>
+                <TagEditor
+                  photoId={photo.id}
+                  tags={photo.tags}
+                  onUpdate={(newTags) =>
+                    setPhoto((prev) =>
+                      prev ? { ...prev, tags: newTags } : prev,
+                    )
+                  }
+                />
 
                 {/* File path */}
                 <div>
@@ -243,6 +233,98 @@ function formatDateTime(datetime: string): string {
   } catch {
     return datetime;
   }
+}
+
+function TagEditor({
+  photoId,
+  tags,
+  onUpdate,
+}: {
+  photoId: string;
+  tags: string[];
+  onUpdate: (tags: string[]) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [editing, setEditing] = useState(false);
+
+  const handleAdd = async () => {
+    const tag = input.trim();
+    if (!tag || tags.includes(tag)) return;
+    const newTags = [...tags, tag];
+    try {
+      await updatePhotoTags(photoId, newTags);
+      onUpdate(newTags);
+      setInput("");
+    } catch {
+      // Error
+    }
+  };
+
+  const handleRemove = async (tagToRemove: string) => {
+    const newTags = tags.filter((t) => t !== tagToRemove);
+    try {
+      await updatePhotoTags(photoId, newTags);
+      onUpdate(newTags);
+    } catch {
+      // Error
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="text-[var(--color-text-muted)]">タグ</span>
+        <button
+          onClick={() => setEditing(!editing)}
+          className="text-xs text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-primary)]"
+        >
+          {editing ? "完了" : "編集"}
+        </button>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="flex items-center gap-1 rounded-full bg-[var(--color-primary)]/10 px-2 py-0.5 text-xs text-[var(--color-primary)]"
+          >
+            {tag}
+            {editing && (
+              <button
+                onClick={() => handleRemove(tag)}
+                className="ml-0.5 text-[var(--color-primary)] hover:text-red-400"
+              >
+                x
+              </button>
+            )}
+          </span>
+        ))}
+        {tags.length === 0 && !editing && (
+          <p className="text-[var(--color-text-muted)]">なし</p>
+        )}
+      </div>
+      {editing && (
+        <div className="mt-2 flex gap-1">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
+            placeholder="タグを追加..."
+            className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs outline-none focus:border-[var(--color-primary)]"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={!input.trim()}
+            className="rounded bg-[var(--color-primary)] px-2 py-1 text-xs text-white disabled:opacity-50"
+          >
+            追加
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default PhotoDetail;

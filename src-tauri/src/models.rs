@@ -51,6 +51,16 @@ pub struct Avatar {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Album {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub photo_count: usize,
+    pub cover_photo: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     pub photo_folder: String,
     pub log_folder: String,

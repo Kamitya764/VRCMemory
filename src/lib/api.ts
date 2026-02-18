@@ -59,6 +59,15 @@ export interface PhotoStats {
   with_thumbnail: number;
 }
 
+export interface Album {
+  id: string;
+  name: string;
+  description: string | null;
+  photo_count: number;
+  cover_photo: string | null;
+  created_at: string;
+}
+
 // Photo commands
 export async function getPhotos(
   offset: number,
@@ -85,6 +94,57 @@ export async function deletePhotos(ids: string[]): Promise<number> {
 
 export async function getPhotoStats(): Promise<PhotoStats> {
   return invoke("get_photo_stats");
+}
+
+export async function updatePhotoTags(
+  id: string,
+  tags: string[],
+): Promise<void> {
+  return invoke("update_photo_tags", { id, tags });
+}
+
+// Album commands
+export async function getAlbums(): Promise<Album[]> {
+  return invoke("get_albums");
+}
+
+export async function createAlbum(
+  name: string,
+  description?: string,
+): Promise<Album> {
+  return invoke("create_album", { name, description: description ?? null });
+}
+
+export async function deleteAlbum(id: string): Promise<void> {
+  return invoke("delete_album", { id });
+}
+
+export async function updateAlbum(
+  id: string,
+  name: string,
+  description?: string,
+): Promise<void> {
+  return invoke("update_album", { id, name, description: description ?? null });
+}
+
+export async function addPhotosToAlbum(
+  albumId: string,
+  photoIds: string[],
+): Promise<number> {
+  return invoke("add_photos_to_album", { albumId, photoIds });
+}
+
+export async function removePhotosFromAlbum(
+  albumId: string,
+  photoIds: string[],
+): Promise<number> {
+  return invoke("remove_photos_from_album", { albumId, photoIds });
+}
+
+export async function getAlbumPhotos(
+  albumId: string,
+): Promise<SearchResult> {
+  return invoke("get_album_photos", { albumId });
 }
 
 // World commands

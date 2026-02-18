@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use crate::error::AppResult;
-use crate::models::{AppSettings, Friend, Photo, WorldVisit};
+use crate::models::{Album, AppSettings, Friend, Photo, WorldVisit};
 
 pub struct DbState(pub Mutex<Database>);
 
@@ -329,16 +329,6 @@ impl Database {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub fn update_photo_tags(&self, photo_id: &str, tags: &[String]) -> AppResult<()> {
-        let tags_json = serde_json::to_string(tags).unwrap_or_default();
-        self.conn.execute(
-            "UPDATE photos SET tags = ?1 WHERE id = ?2",
-            params![tags_json, photo_id],
-        )?;
-        Ok(())
-    }
-
     pub fn get_photos_without_caption(&self, limit: i64) -> AppResult<Vec<Photo>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
@@ -483,6 +473,133 @@ impl Database {
         self.conn.execute(
             "UPDATE friends SET name = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![name, id],
+        )?;
+        Ok(())
+    }
+
+    // Album operations
+    pub fn get_albums(&self) -> AppResult<Vec<Album>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.id, a.name, a.description, a.created_at,
+                    COUNT(ap.photo_id) as photo_count,
+                    (SELECT p.filepath FROM album_photos ap2
+                     JOIN photos p ON p.id = ap2.photo_id
+                     WHERE ap2.album_id = a.id
+                     ORDER BY p.datetime DESC LIMIT 1) as cover_photo
+             FROM albums a
+             LEFT JOIN album_photos ap ON ap.album_id = a.id
+             GROUP BY a.id
+             ORDER BY a.created_at DESC",
+        )?;
+
+        let albums = stmt
+            .query_map([], |row| {
+                Ok(Album {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    created_at: row.get(3)?,
+                    photo_count: row.get(4)?,
+                    cover_photo: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(albums)
+    }
+
+    pub fn create_album(&self, album: &Album) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO albums (id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![album.id, album.name, album.description, album.created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_album(&self, id: &str) -> AppResult<()> {
+        self.conn
+            .execute("DELETE FROM albums WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn update_album(&self, id: &str, name: &str, description: Option<&str>) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE albums SET name = ?1, description = ?2 WHERE id = ?3",
+            params![name, description, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn add_photos_to_album(&self, album_id: &str, photo_ids: &[String]) -> AppResult<usize> {
+        let mut added = 0;
+        for photo_id in photo_ids {
+            let result = self.conn.execute(
+                "INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?1, ?2)",
+                params![album_id, photo_id],
+            )?;
+            if result > 0 {
+                added += 1;
+            }
+        }
+        Ok(added)
+    }
+
+    pub fn remove_photos_from_album(&self, album_id: &str, photo_ids: &[String]) -> AppResult<usize> {
+        let mut removed = 0;
+        for photo_id in photo_ids {
+            let result = self.conn.execute(
+                "DELETE FROM album_photos WHERE album_id = ?1 AND photo_id = ?2",
+                params![album_id, photo_id],
+            )?;
+            removed += result;
+        }
+        Ok(removed)
+    }
+
+    pub fn get_album_photos(&self, album_id: &str) -> AppResult<(Vec<Photo>, usize)> {
+        let total: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM album_photos WHERE album_id = ?1",
+            params![album_id],
+            |row| row.get(0),
+        )?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT p.id, p.filepath, p.filename, p.datetime, p.world_name, p.world_id,
+                    p.tags, p.caption, p.thumbnail_path, p.created_at
+             FROM photos p
+             JOIN album_photos ap ON ap.photo_id = p.id
+             WHERE ap.album_id = ?1
+             ORDER BY p.datetime DESC",
+        )?;
+
+        let photos = stmt
+            .query_map(params![album_id], |row| {
+                let tags_str: String = row.get(6)?;
+                let tags: Vec<String> =
+                    serde_json::from_str(&tags_str).unwrap_or_default();
+                Ok(Photo {
+                    id: row.get(0)?,
+                    filepath: row.get(1)?,
+                    filename: row.get(2)?,
+                    datetime: row.get(3)?,
+                    world_name: row.get(4)?,
+                    world_id: row.get(5)?,
+                    tags,
+                    caption: row.get(7)?,
+                    thumbnail_path: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((photos, total))
+    }
+
+    pub fn update_photo_tags(&self, photo_id: &str, tags: &[String]) -> AppResult<()> {
+        let tags_json = serde_json::to_string(tags).unwrap_or_default();
+        self.conn.execute(
+            "UPDATE photos SET tags = ?1 WHERE id = ?2",
+            params![tags_json, photo_id],
         )?;
         Ok(())
     }

@@ -6,7 +6,7 @@ use tauri::{Manager, State};
 use crate::db::DbState;
 use crate::error::{AppError, AppResult};
 use crate::indexer::IndexerState;
-use crate::models::{AppSettings, Friend, IndexingStatus, Photo, SearchResult, WorldVisit};
+use crate::models::{Album, AppSettings, Friend, IndexingStatus, Photo, SearchResult, WorldVisit};
 use crate::sidecar::SidecarState;
 
 #[tauri::command]
@@ -404,4 +404,88 @@ pub fn get_photo_stats(db: State<DbState>) -> AppResult<serde_json::Value> {
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     let stats = db.get_photo_stats()?;
     Ok(serde_json::to_value(stats).unwrap_or_default())
+}
+
+// Album commands
+
+#[tauri::command]
+pub fn get_albums(db: State<DbState>) -> AppResult<Vec<Album>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.get_albums()
+}
+
+#[tauri::command]
+pub fn create_album(
+    name: String,
+    description: Option<String>,
+    db: State<DbState>,
+) -> AppResult<Album> {
+    let album = Album {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        description,
+        photo_count: 0,
+        cover_photo: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.create_album(&album)?;
+    Ok(album)
+}
+
+#[tauri::command]
+pub fn delete_album(id: String, db: State<DbState>) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.delete_album(&id)
+}
+
+#[tauri::command]
+pub fn update_album(
+    id: String,
+    name: String,
+    description: Option<String>,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.update_album(&id, &name, description.as_deref())
+}
+
+#[tauri::command]
+pub fn add_photos_to_album(
+    album_id: String,
+    photo_ids: Vec<String>,
+    db: State<DbState>,
+) -> AppResult<usize> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.add_photos_to_album(&album_id, &photo_ids)
+}
+
+#[tauri::command]
+pub fn remove_photos_from_album(
+    album_id: String,
+    photo_ids: Vec<String>,
+    db: State<DbState>,
+) -> AppResult<usize> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.remove_photos_from_album(&album_id, &photo_ids)
+}
+
+#[tauri::command]
+pub fn get_album_photos(
+    album_id: String,
+    db: State<DbState>,
+) -> AppResult<SearchResult> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let (photos, total) = db.get_album_photos(&album_id)?;
+    Ok(SearchResult { photos, total })
+}
+
+#[tauri::command]
+pub fn update_photo_tags(
+    id: String,
+    tags: Vec<String>,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.update_photo_tags(&id, &tags)
 }
