@@ -105,8 +105,12 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       return;
     }
     setError(null);
-    await updateSettings({ photo_folder: photoFolder });
-    setStep("log_folder");
+    try {
+      await updateSettings({ photo_folder: photoFolder });
+      setStep("log_folder");
+    } catch (err) {
+      setError(`設定の保存に失敗しました: ${String(err)}`);
+    }
   };
 
   const handleSetLogFolder = async () => {
@@ -115,9 +119,13 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       return;
     }
     setError(null);
-    await updateSettings({ log_folder: logFolder });
-    setStep("indexing");
-    startIndexingProcess();
+    try {
+      await updateSettings({ log_folder: logFolder });
+      setStep("indexing");
+      startIndexingProcess();
+    } catch (err) {
+      setError(`設定の保存に失敗しました: ${String(err)}`);
+    }
   };
 
   const startIndexingProcess = async () => {

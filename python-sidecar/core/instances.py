@@ -68,9 +68,22 @@ def cleanup_all() -> None:
     """Release all model resources and GPU memory."""
     global _embedding_engine, _vector_store, _text_search, _text_search_failed
 
+    # Clean up route-level singletons that have close() methods
+    from api.routes.caption import _generator as caption_gen
+    from api.routes.detect import _detector as detector
+
+    if caption_gen is not None:
+        try:
+            caption_gen.close()
+        except Exception as e:
+            logger.warning(f"Failed to close caption generator: {e}")
+
     if _embedding_engine is not None:
         logger.info("Releasing embedding engine resources")
-        del _embedding_engine
+        try:
+            _embedding_engine.close()
+        except Exception as e:
+            logger.warning(f"Failed to close embedding engine: {e}")
         _embedding_engine = None
 
     if _vector_store is not None:

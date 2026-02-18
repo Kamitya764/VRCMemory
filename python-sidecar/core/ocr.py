@@ -50,46 +50,50 @@ class WorldNameOCR:
             Dict with text, confidence, and parsed world_name
         """
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
+        try:
+            # Crop bottom-left region where world name appears
+            width, height = image.size
+            # World name is roughly in the bottom 8% and left 50% of the image
+            crop_box = (0, int(height * 0.92), int(width * 0.5), height)
+            cropped = image.crop(crop_box)
 
-        # Crop bottom-left region where world name appears
-        width, height = image.size
-        # World name is roughly in the bottom 8% and left 50% of the image
-        crop_box = (0, int(height * 0.92), int(width * 0.5), height)
-        cropped = image.crop(crop_box)
+            text = ""
+            confidence = 0.0
 
-        text = ""
-        confidence = 0.0
+            # Try manga-ocr first (better for Japanese)
+            self._load_manga_ocr()
+            if self._manga_ocr is not None:
+                try:
+                    text = self._manga_ocr(cropped)
+                    confidence = 0.8  # manga-ocr doesn't provide confidence
+                except Exception as e:
+                    logger.warning(f"manga-ocr failed: {e}")
 
-        # Try manga-ocr first (better for Japanese)
-        self._load_manga_ocr()
-        if self._manga_ocr is not None:
-            try:
-                text = self._manga_ocr(cropped)
-                confidence = 0.8  # manga-ocr doesn't provide confidence
-            except Exception as e:
-                logger.warning(f"manga-ocr failed: {e}")
+            # Fallback to easyocr
+            if not text:
+                self._load_easyocr()
+                import numpy as np
 
-        # Fallback to easyocr
-        if not text:
-            self._load_easyocr()
-            import numpy as np
+                img_array = np.array(cropped)
+                results = self._easyocr_reader.readtext(img_array)
+                if results:
+                    text = " ".join([r[1] for r in results])
+                    confidence = float(
+                        sum(r[2] for r in results) / len(results)
+                    )
 
-            img_array = np.array(cropped)
-            results = self._easyocr_reader.readtext(img_array)
-            if results:
-                text = " ".join([r[1] for r in results])
-                confidence = float(
-                    sum(r[2] for r in results) / len(results)
-                )
+            cropped.close()
 
-        # Clean up the text
-        world_name = self._extract_world_name(text) if text else None
+            # Clean up the text
+            world_name = self._extract_world_name(text) if text else None
 
-        return {
-            "text": text,
-            "confidence": confidence,
-            "world_name": world_name,
-        }
+            return {
+                "text": text,
+                "confidence": confidence,
+                "world_name": world_name,
+            }
+        finally:
+            image.close()
 
     def read_full_image(self, image_path: str) -> str | None:
         """Read all text from an image file.
@@ -101,27 +105,30 @@ class WorldNameOCR:
             Extracted text or None
         """
         image = Image.open(image_path).convert("RGB")
-        text = ""
+        try:
+            text = ""
 
-        # Try manga-ocr first
-        self._load_manga_ocr()
-        if self._manga_ocr is not None:
-            try:
-                text = self._manga_ocr(image)
-            except Exception as e:
-                logger.warning(f"manga-ocr failed on {image_path}: {e}")
+            # Try manga-ocr first
+            self._load_manga_ocr()
+            if self._manga_ocr is not None:
+                try:
+                    text = self._manga_ocr(image)
+                except Exception as e:
+                    logger.warning(f"manga-ocr failed on {image_path}: {e}")
 
-        # Fallback to easyocr
-        if not text:
-            self._load_easyocr()
-            import numpy as np
+            # Fallback to easyocr
+            if not text:
+                self._load_easyocr()
+                import numpy as np
 
-            img_array = np.array(image)
-            results = self._easyocr_reader.readtext(img_array)
-            if results:
-                text = " ".join([r[1] for r in results])
+                img_array = np.array(image)
+                results = self._easyocr_reader.readtext(img_array)
+                if results:
+                    text = " ".join([r[1] for r in results])
 
-        return text.strip() if text and text.strip() else None
+            return text.strip() if text and text.strip() else None
+        finally:
+            image.close()
 
     @staticmethod
     def _extract_world_name(raw_text: str) -> str | None:

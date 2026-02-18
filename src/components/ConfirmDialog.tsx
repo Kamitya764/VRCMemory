@@ -52,10 +52,13 @@ function ConfirmDialog({
         if (e.target === e.currentTarget) onCancel();
       }}
       role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-title"
+      aria-describedby="confirm-dialog-message"
     >
       <div className="w-full max-w-sm rounded-lg bg-[var(--color-surface)] p-6 shadow-xl">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        <p className="mt-2 text-sm text-[var(--color-text-muted)]">{message}</p>
+        <h3 id="confirm-dialog-title" className="text-lg font-semibold">{title}</h3>
+        <p id="confirm-dialog-message" className="mt-2 text-sm text-[var(--color-text-muted)]">{message}</p>
         <div className="mt-5 flex justify-end gap-2">
           <button
             ref={cancelRef}

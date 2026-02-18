@@ -584,14 +584,14 @@ pub fn resolve_sidecar_dir(app_handle: &AppHandle) -> PathBuf {
         let manifest = env!("CARGO_MANIFEST_DIR");
         PathBuf::from(manifest)
             .parent()
-            .expect("parent of src-tauri")
+            .unwrap_or_else(|| Path::new("."))
             .join("python-sidecar")
     } else {
         // Production: bundled resource
         app_handle
             .path()
             .resource_dir()
-            .expect("resource dir")
+            .unwrap_or_else(|_| app_handle.path().app_data_dir().unwrap_or_default())
             .join("python-sidecar")
     }
 }

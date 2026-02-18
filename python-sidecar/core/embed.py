@@ -91,15 +91,18 @@ class EmbeddingEngine:
         self._load_image_model()
 
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
-        inputs = self._image_processor(images=image, return_tensors="pt").to(
-            self.device
-        )
+        try:
+            inputs = self._image_processor(images=image, return_tensors="pt").to(
+                self.device
+            )
 
-        with torch.no_grad():
-            image_features = self._image_model.get_image_features(**inputs)
-            image_features = torch.nn.functional.normalize(image_features, p=2, dim=1)
+            with torch.no_grad():
+                image_features = self._image_model.get_image_features(**inputs)
+                image_features = torch.nn.functional.normalize(image_features, p=2, dim=1)
 
-        return image_features[0].cpu().tolist()
+            return image_features[0].cpu().tolist()
+        finally:
+            image.close()
 
     def embed_text_clip(self, text: str) -> list[float]:
         """Generate text embedding using Japanese CLIP (same space as images).
@@ -124,3 +127,17 @@ class EmbeddingEngine:
             text_features = torch.nn.functional.normalize(text_features, p=2, dim=1)
 
         return text_features[0].cpu().tolist()
+
+    def close(self) -> None:
+        """Release models from GPU memory."""
+        del self._text_model
+        del self._text_tokenizer
+        del self._image_model
+        del self._image_processor
+        self._text_model = None
+        self._text_tokenizer = None
+        self._image_model = None
+        self._image_processor = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Embedding models unloaded")

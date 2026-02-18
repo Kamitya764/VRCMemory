@@ -35,21 +35,23 @@ class PersonDetector:
             List of detection dictionaries with bbox and confidence
         """
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
+        try:
+            # Run detection - class 0 is 'person' in COCO
+            results = self.model(image, conf=confidence, classes=[0], verbose=False)
 
-        # Run detection - class 0 is 'person' in COCO
-        results = self.model(image, conf=confidence, classes=[0], verbose=False)
+            detections = []
+            for result in results:
+                for box in result.boxes:
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    detections.append({
+                        "x": float(x1),
+                        "y": float(y1),
+                        "width": float(x2 - x1),
+                        "height": float(y2 - y1),
+                        "confidence": float(box.conf[0]),
+                        "label": "person",
+                    })
 
-        detections = []
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                detections.append({
-                    "x": float(x1),
-                    "y": float(y1),
-                    "width": float(x2 - x1),
-                    "height": float(y2 - y1),
-                    "confidence": float(box.conf[0]),
-                    "label": "person",
-                })
-
-        return detections
+            return detections
+        finally:
+            image.close()

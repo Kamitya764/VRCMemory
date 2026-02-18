@@ -598,6 +598,15 @@ impl Database {
         Ok(count)
     }
 
+    pub fn count_photos_without_thumbnail(&self) -> AppResult<usize> {
+        let count: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE thumbnail_path IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
     pub fn delete_photo(&self, id: &str) -> AppResult<()> {
         self.conn
             .execute("DELETE FROM photos WHERE id = ?1", params![id])?;
@@ -1078,7 +1087,7 @@ impl Database {
         })
     }
 
-    /// Import data from export file
+    /// Import data from export file (wrapped in a transaction)
     pub fn import_data(&self, data: &ExportData) -> AppResult<ImportStats> {
         // Validate export data version
         if data.version != "1.0" {
@@ -1087,62 +1096,77 @@ impl Database {
             ));
         }
 
-        let mut friends_imported = 0;
-        for friend in &data.friends {
-            let result = self.conn.execute(
-                "INSERT OR IGNORE INTO friends (id, name, notes, created_at) VALUES (?1, ?2, ?3, ?4)",
-                params![friend.id, friend.name, friend.notes, friend.created_at],
-            )?;
-            if result > 0 {
-                friends_imported += 1;
-            }
-        }
+        self.conn.execute_batch("BEGIN")?;
 
-        let mut world_visits_imported = 0;
-        for visit in &data.world_visits {
-            let players_json = serde_json::to_string(&visit.players).unwrap_or_default();
-            let result = self.conn.execute(
-                "INSERT OR IGNORE INTO world_visits (id, world_name, world_id, entered_at, left_at, players, instance_type, rating, notes)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    visit.id,
-                    visit.world_name,
-                    visit.world_id,
-                    visit.entered_at,
-                    visit.left_at,
-                    players_json,
-                    visit.instance_type,
-                    visit.rating,
-                    visit.notes,
-                ],
-            )?;
-            if result > 0 {
-                world_visits_imported += 1;
-            }
-        }
-
-        let mut albums_imported = 0;
-        for album in &data.albums {
-            let result = self.conn.execute(
-                "INSERT OR IGNORE INTO albums (id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",
-                params![album.id, album.name, album.description, album.created_at],
-            )?;
-            if result > 0 {
-                albums_imported += 1;
-                for photo_id in &album.photo_ids {
-                    self.conn.execute(
-                        "INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?1, ?2)",
-                        params![album.id, photo_id],
-                    )?;
+        let result = (|| -> AppResult<ImportStats> {
+            let mut friends_imported = 0;
+            for friend in &data.friends {
+                let result = self.conn.execute(
+                    "INSERT OR IGNORE INTO friends (id, name, notes, created_at) VALUES (?1, ?2, ?3, ?4)",
+                    params![friend.id, friend.name, friend.notes, friend.created_at],
+                )?;
+                if result > 0 {
+                    friends_imported += 1;
                 }
             }
-        }
 
-        Ok(ImportStats {
-            friends_imported,
-            world_visits_imported,
-            albums_imported,
-        })
+            let mut world_visits_imported = 0;
+            for visit in &data.world_visits {
+                let players_json = serde_json::to_string(&visit.players).unwrap_or_default();
+                let result = self.conn.execute(
+                    "INSERT OR IGNORE INTO world_visits (id, world_name, world_id, entered_at, left_at, players, instance_type, rating, notes)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        visit.id,
+                        visit.world_name,
+                        visit.world_id,
+                        visit.entered_at,
+                        visit.left_at,
+                        players_json,
+                        visit.instance_type,
+                        visit.rating,
+                        visit.notes,
+                    ],
+                )?;
+                if result > 0 {
+                    world_visits_imported += 1;
+                }
+            }
+
+            let mut albums_imported = 0;
+            for album in &data.albums {
+                let result = self.conn.execute(
+                    "INSERT OR IGNORE INTO albums (id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",
+                    params![album.id, album.name, album.description, album.created_at],
+                )?;
+                if result > 0 {
+                    albums_imported += 1;
+                    for photo_id in &album.photo_ids {
+                        self.conn.execute(
+                            "INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?1, ?2)",
+                            params![album.id, photo_id],
+                        )?;
+                    }
+                }
+            }
+
+            Ok(ImportStats {
+                friends_imported,
+                world_visits_imported,
+                albums_imported,
+            })
+        })();
+
+        match result {
+            Ok(stats) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(stats)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
     }
 
     // Photo stats for analytics

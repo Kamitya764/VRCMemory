@@ -53,17 +53,20 @@ class TextIndexResponse(BaseModel):
 class SearchByTextRequest(BaseModel):
     query: str = Field(..., min_length=1)
     limit: int = Field(default=20, ge=1, le=MAX_SEARCH_LIMIT)
+    offset: int = Field(default=0, ge=0)
 
 
 class SearchByImageRequest(BaseModel):
     image_path: str
     limit: int = Field(default=20, ge=1, le=MAX_SEARCH_LIMIT)
+    offset: int = Field(default=0, ge=0)
 
 
 class HybridSearchRequest(BaseModel):
     """Hybrid search combining vector similarity and text search."""
     query: str = Field(..., min_length=1)
     limit: int = Field(default=20, ge=1, le=MAX_SEARCH_LIMIT)
+    offset: int = Field(default=0, ge=0)
     vector_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     text_weight: float = Field(default=0.5, ge=0.0, le=1.0)
 
@@ -169,11 +172,13 @@ def search_by_text(request: SearchByTextRequest):
     engine = get_embedding_engine()
 
     text_vector = engine.embed_text_clip(request.query)
-    results = store.search(text_vector, limit=request.limit)
+    results = store.search(text_vector, limit=request.limit + request.offset)
+    # Apply offset for pagination
+    paginated = results[request.offset:]
 
     return SearchResponse(
-        results=[SearchResult(**r) for r in results],
-        total=len(results),
+        results=[SearchResult(**r) for r in paginated],
+        total=len(paginated),
     )
 
 
@@ -184,7 +189,7 @@ def search_text_only(request: SearchByTextRequest):
     if ts is None:
         return SearchResponse(results=[], total=0)
 
-    results = ts.search(request.query, limit=request.limit)
+    results = ts.search(request.query, limit=request.limit, offset=request.offset)
     return SearchResponse(
         results=[SearchResult(**r) for r in results],
         total=len(results),
@@ -225,9 +230,9 @@ def hybrid_search(request: HybridSearchRequest):
         text_weight=request.text_weight,
     )
 
-    merged = merged[: request.limit]
+    paginated = merged[request.offset: request.offset + request.limit]
     return SearchResponse(
-        results=[SearchResult(**r) for r in merged],
+        results=[SearchResult(**r) for r in paginated],
         total=len(merged),
     )
 
@@ -246,11 +251,12 @@ def search_similar(request: SearchByImageRequest):
         image_vector = engine.embed_image(f.read())
 
     store = get_vector_store()
-    results = store.search(image_vector, limit=request.limit)
+    results = store.search(image_vector, limit=request.limit + request.offset)
+    paginated = results[request.offset:]
 
     return SearchResponse(
-        results=[SearchResult(**r) for r in results],
-        total=len(results),
+        results=[SearchResult(**r) for r in paginated],
+        total=len(paginated),
     )
 
 

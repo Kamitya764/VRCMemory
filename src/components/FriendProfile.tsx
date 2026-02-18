@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { Encounter, FriendStats } from "@/lib/api";
 import { getFriendEncounters, getFriendStats, buildEncounters } from "@/lib/api";
 import { showToast } from "@/lib/toast";
@@ -14,11 +14,7 @@ function FriendProfile({ friendId, onClose }: FriendProfileProps) {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, [friendId]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [s, e] = await Promise.all([
@@ -32,7 +28,11 @@ function FriendProfile({ friendId, onClose }: FriendProfileProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [friendId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleSync = async () => {
     setSyncing(true);

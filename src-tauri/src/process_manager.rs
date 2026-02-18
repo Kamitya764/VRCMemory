@@ -41,33 +41,49 @@ impl ProcessManager {
             return Err(AppError::Setup("Meilisearchがインストールされていません".to_string()));
         }
 
-        // Check if already running
-        if let Ok(guard) = self.meilisearch.lock() {
-            if guard.is_some() {
-                return Ok(());
-            }
+        // Hold the lock through check-and-start to prevent race condition
+        let mut guard = self.meilisearch.lock()
+            .map_err(|e| AppError::Lock(e.to_string()))?;
+        if guard.is_some() {
+            return Ok(());
         }
 
         std::fs::create_dir_all(&paths.meilisearch_data_dir).ok();
 
-        let child = std::process::Command::new(&paths.meilisearch_exe)
-            .arg("--db-path")
+        // Set up log file for process output
+        let log_path = paths.runtime_dir.join("meilisearch.log");
+        let log_file = std::fs::File::create(&log_path).ok();
+        let stderr_file = std::fs::File::create(paths.runtime_dir.join("meilisearch.err.log")).ok();
+
+        let mut cmd = std::process::Command::new(&paths.meilisearch_exe);
+        cmd.arg("--db-path")
             .arg(&paths.meilisearch_data_dir)
             .arg("--http-addr")
             .arg("127.0.0.1:7700")
             .arg("--no-analytics")
             .arg("--env")
             .arg("development")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .arg("--master-key")
+            .arg("vrcmemory-local-key");
+
+        // Redirect output to log files instead of /dev/null
+        if let Some(f) = log_file {
+            cmd.stdout(f);
+        } else {
+            cmd.stdout(std::process::Stdio::null());
+        }
+        if let Some(f) = stderr_file {
+            cmd.stderr(f);
+        } else {
+            cmd.stderr(std::process::Stdio::null());
+        }
+
+        let child = cmd
             .spawn()
             .map_err(|e| AppError::Setup(format!("Meilisearch起動失敗: {}", e)))?;
 
         log::info!("Meilisearch started (PID: {})", child.id());
-
-        if let Ok(mut guard) = self.meilisearch.lock() {
-            *guard = Some(child);
-        }
+        *guard = Some(child);
 
         Ok(())
     }
@@ -85,11 +101,11 @@ impl ProcessManager {
             return Err(AppError::Setup("Pythonがインストールされていません".to_string()));
         }
 
-        // Check if already running
-        if let Ok(guard) = self.python_sidecar.lock() {
-            if guard.is_some() {
-                return Ok(());
-            }
+        // Hold the lock through check-and-start to prevent race condition
+        let mut guard = self.python_sidecar.lock()
+            .map_err(|e| AppError::Lock(e.to_string()))?;
+        if guard.is_some() {
+            return Ok(());
         }
 
         let main_py = paths.sidecar_dir.join("main.py");
@@ -100,12 +116,27 @@ impl ProcessManager {
             )));
         }
 
+        // Set up log file for process output
+        let log_path = paths.runtime_dir.join("python-sidecar.log");
+        let log_file = std::fs::File::create(&log_path).ok();
+        let stderr_file = std::fs::File::create(paths.runtime_dir.join("python-sidecar.err.log")).ok();
+
         let mut cmd = std::process::Command::new(&paths.python_exe);
         cmd.arg(&main_py)
             .current_dir(&paths.sidecar_dir)
-            .env("VRCMEMORY_ENV", "production")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+            .env("VRCMEMORY_ENV", "production");
+
+        // Redirect output to log files instead of /dev/null
+        if let Some(f) = log_file {
+            cmd.stdout(f);
+        } else {
+            cmd.stdout(std::process::Stdio::null());
+        }
+        if let Some(f) = stderr_file {
+            cmd.stderr(f);
+        } else {
+            cmd.stderr(std::process::Stdio::null());
+        }
 
         // On Windows with embedded Python, ensure the embedded Lib/site-packages is on PYTHONPATH
         if cfg!(target_os = "windows") {
@@ -118,10 +149,7 @@ impl ProcessManager {
             .map_err(|e| AppError::Setup(format!("Python sidecar起動失敗: {}", e)))?;
 
         log::info!("Python sidecar started (PID: {})", child.id());
-
-        if let Ok(mut guard) = self.python_sidecar.lock() {
-            *guard = Some(child);
-        }
+        *guard = Some(child);
 
         Ok(())
     }

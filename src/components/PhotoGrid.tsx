@@ -142,24 +142,6 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
 
   const photoIds = useMemo(() => visiblePhotos.map((p) => p.id), [visiblePhotos]);
 
-  // IntersectionObserver for infinite scroll
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !loadingMore) {
-          handleLoadMore();
-        }
-      },
-      { rootMargin: "200px" },
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [loadingMore, sortedPhotos.length, visibleCount]);
-
   const handleLoadMore = useCallback(async () => {
     if (loadingMore) return;
     setLoadingMore(true);
@@ -183,6 +165,24 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
 
     setLoadingMore(false);
   }, [loadingMore, searchQuery, displayPhotos.length, sortedPhotos.length, visibleCount]);
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore) {
+          handleLoadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadingMore, handleLoadMore]);
 
   // Selection helpers
   const toggleSelection = (id: string) => {

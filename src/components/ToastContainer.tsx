@@ -22,6 +22,7 @@ function ToastContainer() {
           <button
             onClick={() => dismissToast(toast.id)}
             className="ml-2 opacity-50 hover:opacity-100"
+            aria-label="閉じる"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -36,9 +37,9 @@ function ToastContainer() {
 function colorClass(type: Toast["type"]): string {
   switch (type) {
     case "success":
-      return "border-green-500/30 bg-green-500/10 text-green-300";
+      return "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300";
     case "error":
-      return "border-red-500/30 bg-red-500/10 text-red-300";
+      return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
     default:
       return "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)]";
   }

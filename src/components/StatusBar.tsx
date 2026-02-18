@@ -1,10 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getIndexingStatus, getSidecarStatus } from "@/lib/api";
 import type { SidecarStatus } from "@/lib/api";
+import { APP_VERSION } from "@/lib/constants";
 
 interface StatusBarProps {
   photoCount: number;
 }
+
+const INDEXING_POLL_MS = 2000;
+const IDLE_POLL_MS = 15000;
+const SIDECAR_POLL_MS = 30000;
 
 function StatusBar({ photoCount }: StatusBarProps) {
   const [indexing, setIndexing] = useState({
@@ -13,6 +18,7 @@ function StatusBar({ photoCount }: StatusBarProps) {
     total: 0,
   });
   const [sidecar, setSidecar] = useState<SidecarStatus | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
   useEffect(() => {
     // Check sidecar once on mount
@@ -21,22 +27,41 @@ function StatusBar({ photoCount }: StatusBarProps) {
       .catch(() => setSidecar({ available: false, gpu_available: false }));
   }, []);
 
+  // Adaptive polling: fast when indexing, slow when idle
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const poll = async () => {
       try {
         const status = await getIndexingStatus();
-        setIndexing({
-          isRunning: status.is_running,
-          processed: status.processed,
-          total: status.total,
+        setIndexing((prev) => {
+          // Only update state if values actually changed
+          if (
+            prev.isRunning === status.is_running &&
+            prev.processed === status.processed &&
+            prev.total === status.total
+          ) {
+            return prev;
+          }
+          return {
+            isRunning: status.is_running,
+            processed: status.processed,
+            total: status.total,
+          };
         });
       } catch {
         // Not running in Tauri
       }
-    }, 2000);
+    };
 
-    return () => clearInterval(interval);
-  }, []);
+    // Initial check
+    poll();
+
+    const currentInterval = indexing.isRunning ? INDEXING_POLL_MS : IDLE_POLL_MS;
+    intervalRef.current = setInterval(poll, currentInterval);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [indexing.isRunning]);
 
   // Re-check sidecar every 30s
   useEffect(() => {
@@ -44,7 +69,7 @@ function StatusBar({ photoCount }: StatusBarProps) {
       getSidecarStatus()
         .then(setSidecar)
         .catch(() => setSidecar({ available: false, gpu_available: false }));
-    }, 30000);
+    }, SIDECAR_POLL_MS);
 
     return () => clearInterval(interval);
   }, []);
@@ -66,13 +91,14 @@ function StatusBar({ photoCount }: StatusBarProps) {
               className={`inline-block h-1.5 w-1.5 rounded-full ${
                 sidecar.available ? "bg-green-400" : "bg-neutral-500"
               }`}
+              aria-hidden="true"
             />
             <span>
               AI {sidecar.available ? (sidecar.gpu_available ? "GPU" : "CPU") : "OFF"}
             </span>
           </div>
         )}
-        <span>VRCMemory v0.1.0</span>
+        <span>VRCMemory {APP_VERSION}</span>
       </div>
     </footer>
   );
