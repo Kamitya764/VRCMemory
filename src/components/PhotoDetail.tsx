@@ -198,6 +198,9 @@ function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProp
                   {photo.caption && (
                     <MetadataField label="キャプション" value={photo.caption} copyable />
                   )}
+                  {photo.ocr_text && (
+                    <MetadataField label="OCRテキスト" value={photo.ocr_text} copyable />
+                  )}
 
                   {/* Tags */}
                   <TagEditor

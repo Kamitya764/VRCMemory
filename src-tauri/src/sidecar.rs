@@ -237,6 +237,40 @@ impl SidecarState {
             .map_err(|e| AppError::Sidecar(format!("Invalid status response: {}", e)))
     }
 
+    /// Run OCR on a batch of images
+    pub async fn ocr_batch(&self, image_paths: &[String]) -> AppResult<OcrBatchResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/api/ocr/batch", SIDECAR_URL))
+            .json(&OcrBatchRequest {
+                image_paths: image_paths.to_vec(),
+            })
+            .send()
+            .await
+            .map_err(|e| AppError::Sidecar(format!("OCR batch request failed: {}", e)))?;
+
+        resp.json()
+            .await
+            .map_err(|e| AppError::Sidecar(format!("Invalid OCR response: {}", e)))
+    }
+
+    /// Compute perceptual hashes for a batch of images
+    pub async fn hash_batch(&self, image_paths: &[String]) -> AppResult<HashBatchResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/api/dedup/hash", SIDECAR_URL))
+            .json(&HashBatchRequest {
+                image_paths: image_paths.to_vec(),
+            })
+            .send()
+            .await
+            .map_err(|e| AppError::Sidecar(format!("Hash batch request failed: {}", e)))?;
+
+        resp.json()
+            .await
+            .map_err(|e| AppError::Sidecar(format!("Invalid hash response: {}", e)))
+    }
+
     /// Check if sidecar is available (cached)
     pub fn is_available(&self) -> bool {
         self.available
@@ -318,4 +352,42 @@ pub struct SearchStatusResponse {
     pub total_vectors: u32,
     pub total_documents: u32,
     pub meilisearch_available: bool,
+}
+
+// OCR types
+
+#[derive(Debug, Serialize)]
+struct OcrBatchRequest {
+    image_paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OcrBatchResponse {
+    pub results: Vec<OcrResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OcrResult {
+    pub path: String,
+    pub text: Option<String>,
+    pub error: Option<String>,
+}
+
+// Dedup hash types
+
+#[derive(Debug, Serialize)]
+struct HashBatchRequest {
+    image_paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HashBatchResponse {
+    pub results: Vec<HashResult>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HashResult {
+    pub path: String,
+    pub hash: Option<String>,
+    pub error: Option<String>,
 }

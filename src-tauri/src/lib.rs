@@ -112,6 +112,11 @@ pub fn run() {
             commands::build_encounters,
             commands::get_friend_encounters,
             commands::get_friend_stats,
+            commands::generate_ocr,
+            commands::compute_hashes,
+            commands::find_duplicates,
+            commands::suggest_auto_albums,
+            commands::create_auto_album,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

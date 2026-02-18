@@ -13,9 +13,14 @@ import {
   indexPhotosVectors,
   indexPhotosText,
   getSearchStatus,
+  generateOcr,
+  computeHashes,
+  findDuplicates,
+  suggestAutoAlbums,
+  createAutoAlbum,
 } from "@/lib/api";
 import { showToast } from "@/lib/toast";
-import type { AppSettings, SidecarStatus, SearchIndexStatus } from "@/lib/api";
+import type { AppSettings, SidecarStatus, SearchIndexStatus, DuplicateGroup, AutoAlbumSuggestion } from "@/lib/api";
 
 function Settings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -35,6 +40,14 @@ function Settings() {
   const [vectorIndexStatus, setVectorIndexStatus] = useState("");
   const [textIndexing, setTextIndexing] = useState(false);
   const [textIndexStatus, setTextIndexStatus] = useState("");
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [ocrStatus, setOcrStatus] = useState("");
+  const [hashProcessing, setHashProcessing] = useState(false);
+  const [hashStatus, setHashStatus] = useState("");
+  const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
+  const [loadingDuplicates, setLoadingDuplicates] = useState(false);
+  const [suggestions, setSuggestions] = useState<AutoAlbumSuggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
   useEffect(() => {
     getSettings()
@@ -366,6 +379,190 @@ function Settings() {
             </span>
           )}
         </div>
+      </section>
+
+      {/* OCR Text Extraction */}
+      {sidecar?.available && (
+        <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <h3 className="font-medium">OCRテキスト抽出</h3>
+          <p className="text-sm text-[var(--color-text-muted)]">
+            写真内のテキストをOCRで読み取り、検索可能にします。
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={async () => {
+                setOcrProcessing(true);
+                setOcrStatus("OCR処理中...");
+                try {
+                  const count = await generateOcr(20);
+                  setOcrStatus(
+                    count > 0
+                      ? `${count} 枚の写真からテキストを抽出しました`
+                      : "OCR未処理の写真がありません",
+                  );
+                } catch {
+                  setOcrStatus("エラー: OCR処理に失敗しました");
+                } finally {
+                  setOcrProcessing(false);
+                }
+              }}
+              disabled={ocrProcessing}
+              className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+            >
+              {ocrProcessing ? "処理中..." : "OCR実行"}
+            </button>
+            {ocrStatus && (
+              <span className="text-sm text-[var(--color-text-muted)]">
+                {ocrStatus}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Duplicate Detection */}
+      {sidecar?.available && (
+        <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <h3 className="font-medium">重複検出</h3>
+          <p className="text-sm text-[var(--color-text-muted)]">
+            画像のパーセプチュアルハッシュを計算し、類似写真を検出します。
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={async () => {
+                setHashProcessing(true);
+                setHashStatus("ハッシュ計算中...");
+                try {
+                  const count = await computeHashes(50);
+                  setHashStatus(
+                    count > 0
+                      ? `${count} 枚のハッシュを計算しました`
+                      : "未処理の写真がありません",
+                  );
+                } catch {
+                  setHashStatus("エラー: ハッシュ計算に失敗しました");
+                } finally {
+                  setHashProcessing(false);
+                }
+              }}
+              disabled={hashProcessing}
+              className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+            >
+              {hashProcessing ? "処理中..." : "ハッシュ計算"}
+            </button>
+            <button
+              onClick={async () => {
+                setLoadingDuplicates(true);
+                try {
+                  const groups = await findDuplicates();
+                  setDuplicates(groups);
+                  if (groups.length === 0) {
+                    showToast("重複は見つかりませんでした", "info");
+                  }
+                } catch {
+                  showToast("重複検出に失敗しました", "error");
+                } finally {
+                  setLoadingDuplicates(false);
+                }
+              }}
+              disabled={loadingDuplicates}
+              className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+            >
+              {loadingDuplicates ? "検索中..." : "重複を検出"}
+            </button>
+            {hashStatus && (
+              <span className="text-sm text-[var(--color-text-muted)]">
+                {hashStatus}
+              </span>
+            )}
+          </div>
+          {duplicates.length > 0 && (
+            <div className="mt-2 space-y-2">
+              <p className="text-sm font-medium">
+                {duplicates.length} グループの重複を検出
+              </p>
+              <div className="max-h-48 space-y-1 overflow-y-auto">
+                {duplicates.map((group) => (
+                  <div
+                    key={group.hash}
+                    className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs"
+                  >
+                    <span className="font-medium">{group.photos.length} 枚</span>
+                    <span className="ml-2 text-[var(--color-text-muted)]">
+                      {group.photos.map((p) => p.filename).join(", ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Auto Albums */}
+      <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <h3 className="font-medium">自動アルバム提案</h3>
+        <p className="text-sm text-[var(--color-text-muted)]">
+          ワールド訪問セッションごとに写真をグループ化し、アルバム作成を提案します。
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              setLoadingSuggestions(true);
+              try {
+                const items = await suggestAutoAlbums();
+                setSuggestions(items);
+                if (items.length === 0) {
+                  showToast("提案するアルバムがありません", "info");
+                }
+              } catch {
+                showToast("提案の取得に失敗しました", "error");
+              } finally {
+                setLoadingSuggestions(false);
+              }
+            }}
+            disabled={loadingSuggestions}
+            className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+          >
+            {loadingSuggestions ? "検索中..." : "提案を表示"}
+          </button>
+        </div>
+        {suggestions.length > 0 && (
+          <div className="mt-2 space-y-2">
+            <p className="text-sm font-medium">
+              {suggestions.length} 件の提案
+            </p>
+            <div className="max-h-60 space-y-1 overflow-y-auto">
+              {suggestions.map((s, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{s.name}</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                      {s.photo_count} 枚
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await createAutoAlbum(s.name, s.photo_ids);
+                        showToast(`「${s.name}」を作成しました`, "success");
+                        setSuggestions((prev) => prev.filter((_, idx) => idx !== i));
+                      } catch {
+                        showToast("アルバム作成に失敗しました", "error");
+                      }
+                    }}
+                    className="ml-2 shrink-0 rounded bg-[var(--color-primary)] px-3 py-1 text-xs text-white transition-colors hover:bg-[var(--color-primary-hover)]"
+                  >
+                    作成
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Data management */}

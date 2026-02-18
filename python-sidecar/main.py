@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import caption, detect, embed, health, ocr, search
+from api.routes import caption, dedup, detect, embed, health, ocr, search
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ app.include_router(embed.router, prefix="/api/embed", tags=["embed"])
 app.include_router(detect.router, prefix="/api/detect", tags=["detect"])
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
+app.include_router(dedup.router, prefix="/api/dedup", tags=["dedup"])
 
 
 if __name__ == "__main__":

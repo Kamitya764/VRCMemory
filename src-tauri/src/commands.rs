@@ -6,7 +6,7 @@ use tauri::{Manager, State};
 use crate::db::DbState;
 use crate::error::{AppError, AppResult};
 use crate::indexer::IndexerState;
-use crate::models::{Album, AppSettings, Avatar, Encounter, ExportData, Friend, FriendStats, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
+use crate::models::{Album, AppSettings, Avatar, DuplicateGroup, Encounter, ExportData, Friend, FriendStats, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
 use crate::sidecar::SidecarState;
 
 #[tauri::command]
@@ -619,6 +619,121 @@ pub fn import_data_from_file(
         .map_err(|e| AppError::Parse(format!("Invalid data format: {}", e)))?;
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     db.import_data(&data)
+}
+
+// --- Phase 4: OCR, Dedup, Auto-albums ---
+
+/// Run OCR on photos that don't have OCR text yet
+#[tauri::command]
+pub async fn generate_ocr(
+    batch_size: Option<i64>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<usize> {
+    let limit = batch_size.unwrap_or(20);
+
+    let photos = {
+        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        db.get_photos_without_ocr(limit)?
+    };
+
+    if photos.is_empty() {
+        return Ok(0);
+    }
+
+    let paths: Vec<String> = photos.iter().map(|p| p.filepath.clone()).collect();
+    let result = sidecar.ocr_batch(&paths).await?;
+
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let mut processed = 0;
+
+    for ocr_result in &result.results {
+        if let Some(text) = &ocr_result.text {
+            if !text.trim().is_empty() {
+                if let Some(photo) = photos.iter().find(|p| p.filepath == ocr_result.path) {
+                    db.update_photo_ocr(&photo.id, text)?;
+                    processed += 1;
+                }
+            }
+        }
+    }
+
+    log::info!("OCR processed {} out of {} photos", processed, photos.len());
+    Ok(processed)
+}
+
+/// Compute perceptual hashes for photos that don't have one
+#[tauri::command]
+pub async fn compute_hashes(
+    batch_size: Option<i64>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<usize> {
+    let limit = batch_size.unwrap_or(50);
+
+    let photos = {
+        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        db.get_photos_without_hash(limit)?
+    };
+
+    if photos.is_empty() {
+        return Ok(0);
+    }
+
+    let paths: Vec<String> = photos.iter().map(|p| p.filepath.clone()).collect();
+    let result = sidecar.hash_batch(&paths).await?;
+
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let mut hashed = 0;
+
+    for hash_result in &result.results {
+        if let Some(hash) = &hash_result.hash {
+            if let Some(photo) = photos.iter().find(|p| p.filepath == hash_result.path) {
+                db.update_photo_hash(&photo.id, hash)?;
+                hashed += 1;
+            }
+        }
+    }
+
+    log::info!("Hashed {} out of {} photos", hashed, photos.len());
+    Ok(hashed)
+}
+
+/// Find duplicate photo groups based on perceptual hash
+#[tauri::command]
+pub fn find_duplicates(db: State<DbState>) -> AppResult<Vec<DuplicateGroup>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.find_duplicate_groups()
+}
+
+/// Suggest auto albums based on world visit sessions
+#[tauri::command]
+pub fn suggest_auto_albums(
+    db: State<DbState>,
+) -> AppResult<Vec<crate::db::AutoAlbumSuggestion>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.suggest_auto_albums()
+}
+
+/// Create album from auto-album suggestion
+#[tauri::command]
+pub fn create_auto_album(
+    name: String,
+    photo_ids: Vec<String>,
+    db: State<DbState>,
+) -> AppResult<Album> {
+    let album = Album {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        description: Some("自動生成".to_string()),
+        photo_count: 0,
+        cover_photo: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.create_album(&album)?;
+    db.add_photos_to_album(&album.id, &photo_ids)?;
+    Ok(album)
 }
 
 // --- AI Search commands (Phase 2) ---
