@@ -17,7 +17,7 @@ pub fn get_photos(
     limit: i64,
     db: State<DbState>,
 ) -> AppResult<SearchResult> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     let (photos, total) = db.get_photos(offset, limit)?;
     Ok(SearchResult { photos, total })
 }
@@ -27,7 +27,7 @@ pub fn search_photos(
     query: String,
     db: State<DbState>,
 ) -> AppResult<SearchResult> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
 
     if query.trim().is_empty() {
         let (photos, total) = db.get_photos(0, 50)?;
@@ -45,19 +45,19 @@ pub fn get_photo_detail(
     id: String,
     db: State<DbState>,
 ) -> AppResult<Option<Photo>> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     db.get_photo_by_id(&id)
 }
 
 #[tauri::command]
 pub fn get_world_history(db: State<DbState>) -> AppResult<Vec<WorldVisit>> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     db.get_world_history()
 }
 
 #[tauri::command]
 pub fn get_friends(db: State<DbState>) -> AppResult<Vec<Friend>> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     db.get_friends()
 }
 
@@ -73,7 +73,7 @@ pub fn add_friend(
         avatars: vec![],
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     db.insert_friend(&friend)?;
     Ok(friend)
 }
@@ -83,13 +83,13 @@ pub fn delete_friend(
     id: String,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     db.delete_friend(&id)
 }
 
 #[tauri::command]
 pub fn get_settings(db: State<DbState>) -> AppResult<AppSettings> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     db.get_settings()
 }
 
@@ -98,7 +98,7 @@ pub fn update_settings(
     settings: serde_json::Value,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     if let Some(obj) = settings.as_object() {
         for (key, value) in obj {
             let val_str = match value {
@@ -127,7 +127,7 @@ pub fn scan_photos(
     indexer_state.processed.store(0, Ordering::Relaxed);
     indexer_state.is_running.store(true, Ordering::Relaxed);
 
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     let mut indexed = 0;
 
     for (i, filepath) in photo_files.iter().enumerate() {
@@ -153,7 +153,7 @@ pub fn parse_logs(
     let log_path = PathBuf::from(&log_folder);
     let sessions = crate::indexer::process_log_files(&log_path)?;
 
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     let mut recorded = 0;
 
     for session in &sessions {
@@ -185,7 +185,7 @@ pub fn start_indexing(
     db: State<DbState>,
     indexer_state: State<IndexerState>,
 ) -> AppResult<()> {
-    let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     let settings = db_guard.get_settings()?;
     drop(db_guard);
 
@@ -197,7 +197,7 @@ pub fn start_indexing(
         indexer_state.processed.store(0, Ordering::Relaxed);
         indexer_state.is_running.store(true, Ordering::Relaxed);
 
-        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
         for (i, filepath) in photo_files.iter().enumerate() {
             let filepath_str = filepath.to_string_lossy().to_string();
             if !db_guard.photo_exists(&filepath_str)? {
@@ -210,7 +210,7 @@ pub fn start_indexing(
 
     if !settings.log_folder.is_empty() {
         let sessions = crate::indexer::process_log_files(&PathBuf::from(&settings.log_folder))?;
-        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
         for session in &sessions {
             let visit = WorldVisit {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -272,7 +272,7 @@ pub async fn generate_captions(
     let limit = batch_size.unwrap_or(10).min(500);
 
     let photos = {
-        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
         db.get_photos_without_caption(limit)?
     };
 
@@ -285,7 +285,7 @@ pub async fn generate_captions(
 
     let result = sidecar.caption_batch(&path_refs).await?;
 
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let mut captioned = 0;
 
     for caption_result in &result.results {
@@ -325,7 +325,7 @@ pub fn delete_photo(
     id: String,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.delete_photo(&id)
 }
 
@@ -335,7 +335,7 @@ pub fn delete_photos(
     ids: Vec<String>,
     db: State<DbState>,
 ) -> AppResult<usize> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.delete_photos(&ids)
 }
 
@@ -346,7 +346,7 @@ pub fn update_world_rating(
     rating: Option<i32>,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_world_visit_rating(&id, rating)
 }
 
@@ -357,7 +357,7 @@ pub fn update_world_notes(
     notes: Option<String>,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_world_visit_notes(&id, notes.as_deref())
 }
 
@@ -368,7 +368,7 @@ pub fn update_friend_notes(
     notes: Option<String>,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_friend_notes(&id, notes.as_deref())
 }
 
@@ -379,7 +379,7 @@ pub fn update_friend_name(
     name: String,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_friend_name(&id, &name)
 }
 
@@ -391,13 +391,13 @@ pub fn add_avatar(
     name: String,
     db: State<DbState>,
 ) -> AppResult<Avatar> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.insert_avatar(&friend_id, &name)
 }
 
 #[tauri::command]
 pub fn delete_avatar(id: String, db: State<DbState>) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.delete_avatar(&id)
 }
 
@@ -407,13 +407,13 @@ pub fn add_avatar_reference(
     image_path: String,
     db: State<DbState>,
 ) -> AppResult<String> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.add_avatar_reference(&avatar_id, &image_path)
 }
 
 #[tauri::command]
 pub fn delete_avatar_reference(id: String, db: State<DbState>) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.delete_avatar_reference(&id)
 }
 
@@ -422,7 +422,7 @@ pub fn delete_avatar_reference(id: String, db: State<DbState>) -> AppResult<()> 
 /// Build encounters from world visit player lists
 #[tauri::command]
 pub fn build_encounters(db: State<DbState>) -> AppResult<usize> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.build_encounters()
 }
 
@@ -432,7 +432,7 @@ pub fn get_friend_encounters(
     friend_id: String,
     db: State<DbState>,
 ) -> AppResult<Vec<Encounter>> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.get_friend_encounters(&friend_id)
 }
 
@@ -442,7 +442,7 @@ pub fn get_friend_stats(
     friend_id: String,
     db: State<DbState>,
 ) -> AppResult<FriendStats> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.get_friend_stats(&friend_id)
 }
 
@@ -459,14 +459,14 @@ pub fn generate_thumbnails(
         .map_err(|e: tauri::Error| AppError::Parse(e.to_string()))?;
     let thumbnails_dir = app_data_dir.join("thumbnails");
 
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     crate::indexer::generate_thumbnails_batch(&db, &thumbnails_dir, &indexer_state)
 }
 
 /// Get photo statistics
 #[tauri::command]
 pub fn get_photo_stats(db: State<DbState>) -> AppResult<serde_json::Value> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let stats = db.get_photo_stats()?;
     Ok(serde_json::to_value(stats).unwrap_or_default())
 }
@@ -475,7 +475,7 @@ pub fn get_photo_stats(db: State<DbState>) -> AppResult<serde_json::Value> {
 
 #[tauri::command]
 pub fn get_albums(db: State<DbState>) -> AppResult<Vec<Album>> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.get_albums()
 }
 
@@ -493,14 +493,14 @@ pub fn create_album(
         cover_photo: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.create_album(&album)?;
     Ok(album)
 }
 
 #[tauri::command]
 pub fn delete_album(id: String, db: State<DbState>) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.delete_album(&id)
 }
 
@@ -511,7 +511,7 @@ pub fn update_album(
     description: Option<String>,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_album(&id, &name, description.as_deref())
 }
 
@@ -521,7 +521,7 @@ pub fn add_photos_to_album(
     photo_ids: Vec<String>,
     db: State<DbState>,
 ) -> AppResult<usize> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.add_photos_to_album(&album_id, &photo_ids)
 }
 
@@ -531,7 +531,7 @@ pub fn remove_photos_from_album(
     photo_ids: Vec<String>,
     db: State<DbState>,
 ) -> AppResult<usize> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.remove_photos_from_album(&album_id, &photo_ids)
 }
 
@@ -540,7 +540,7 @@ pub fn get_album_photos(
     album_id: String,
     db: State<DbState>,
 ) -> AppResult<SearchResult> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let (photos, total) = db.get_album_photos(&album_id)?;
     Ok(SearchResult { photos, total })
 }
@@ -551,7 +551,7 @@ pub fn update_photo_tags(
     tags: Vec<String>,
     db: State<DbState>,
 ) -> AppResult<()> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_photo_tags(&id, &tags)
 }
 
@@ -565,7 +565,7 @@ pub fn filter_photos(
     limit: i64,
     db: State<DbState>,
 ) -> AppResult<SearchResult> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let (photos, total) = db.filter_photos(
         world_name.as_deref(),
         date_from.as_deref(),
@@ -579,7 +579,7 @@ pub fn filter_photos(
 /// Get distinct world names for filter dropdown
 #[tauri::command]
 pub fn get_world_names(db: State<DbState>) -> AppResult<Vec<String>> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.get_world_names()
 }
 
@@ -590,7 +590,7 @@ pub fn get_world_history_filtered(
     date_to: Option<String>,
     db: State<DbState>,
 ) -> AppResult<Vec<WorldVisit>> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.get_world_history_filtered(date_from.as_deref(), date_to.as_deref())
 }
 
@@ -613,7 +613,7 @@ pub fn export_data_to_file(
     db: State<DbState>,
 ) -> AppResult<()> {
     let validated_path = validate_export_path(&path, "json")?;
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let data = db.export_all_data()?;
     let json = serde_json::to_string_pretty(&data)
         .map_err(|e| AppError::Parse(e.to_string()))?;
@@ -633,7 +633,7 @@ pub fn import_data_from_file(
         .map_err(|e| AppError::Parse(format!("Failed to read file: {}", e)))?;
     let data: ExportData = serde_json::from_str(&json)
         .map_err(|e| AppError::Parse(format!("Invalid data format: {}", e)))?;
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.import_data(&data)
 }
 
@@ -649,7 +649,7 @@ pub async fn generate_ocr(
     let limit = batch_size.unwrap_or(20).min(500);
 
     let photos = {
-        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
         db.get_photos_without_ocr(limit)?
     };
 
@@ -660,7 +660,7 @@ pub async fn generate_ocr(
     let paths: Vec<String> = photos.iter().map(|p| p.filepath.clone()).collect();
     let result = sidecar.ocr_batch(&paths).await?;
 
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let mut processed = 0;
 
     for ocr_result in &result.results {
@@ -688,7 +688,7 @@ pub async fn compute_hashes(
     let limit = batch_size.unwrap_or(50).min(1000);
 
     let photos = {
-        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
         db.get_photos_without_hash(limit)?
     };
 
@@ -699,7 +699,7 @@ pub async fn compute_hashes(
     let paths: Vec<String> = photos.iter().map(|p| p.filepath.clone()).collect();
     let result = sidecar.hash_batch(&paths).await?;
 
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     let mut hashed = 0;
 
     for hash_result in &result.results {
@@ -718,7 +718,7 @@ pub async fn compute_hashes(
 /// Find duplicate photo groups based on perceptual hash
 #[tauri::command]
 pub fn find_duplicates(db: State<DbState>) -> AppResult<Vec<DuplicateGroup>> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.find_duplicate_groups()
 }
 
@@ -727,7 +727,7 @@ pub fn find_duplicates(db: State<DbState>) -> AppResult<Vec<DuplicateGroup>> {
 pub fn suggest_auto_albums(
     db: State<DbState>,
 ) -> AppResult<Vec<crate::db::AutoAlbumSuggestion>> {
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.suggest_auto_albums()
 }
 
@@ -746,7 +746,7 @@ pub fn create_auto_album(
         cover_photo: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.create_album(&album)?;
     db.add_photos_to_album(&album.id, &photo_ids)?;
     Ok(album)
@@ -778,7 +778,7 @@ pub async fn ai_search(
     let db = db
         .0
         .lock()
-        .map_err(|e| AppError::Parse(e.to_string()))?;
+        .map_err(|e| AppError::Lock(e.to_string()))?;
 
     let mut photos = Vec::new();
     for id in &photo_ids {
@@ -801,7 +801,7 @@ pub async fn index_photos_vectors(
     let limit = batch_size.unwrap_or(50).min(500);
 
     let photos = {
-        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
         let (all_photos, _) = db.get_photos(0, limit)?;
         all_photos
     };
@@ -836,7 +836,7 @@ pub async fn index_photos_text(
     let limit = batch_size.unwrap_or(100).min(1000);
 
     let photos = {
-        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
         let (all_photos, _) = db.get_photos(0, limit)?;
         all_photos
     };

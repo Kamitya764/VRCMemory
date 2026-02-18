@@ -246,25 +246,67 @@ impl Database {
 
     // Friend operations
     pub fn get_friends(&self) -> AppResult<Vec<Friend>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, name, notes, created_at FROM friends ORDER BY name")?;
+        // Single query with LEFT JOINs to avoid N+1
+        let mut stmt = self.conn.prepare(
+            "SELECT f.id, f.name, f.notes, f.created_at,
+                    a.id, a.name, ar.image_path
+             FROM friends f
+             LEFT JOIN avatars a ON a.friend_id = f.id
+             LEFT JOIN avatar_references ar ON ar.avatar_id = a.id
+             ORDER BY f.name, a.created_at, a.id",
+        )?;
 
-        let mut friends = stmt
+        let rows = stmt
             .query_map([], |row| {
-                Ok(Friend {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    notes: row.get(2)?,
-                    avatars: vec![],
-                    created_at: row.get(3)?,
-                })
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Load avatars for each friend
-        for friend in &mut friends {
-            friend.avatars = self.get_avatars_for_friend(&friend.id)?;
+        // Group rows into Friends > Avatars > References in Rust
+        let mut friends: Vec<Friend> = Vec::new();
+        let mut current_friend_id: Option<String> = None;
+        let mut current_avatar_id: Option<String> = None;
+
+        for (friend_id, friend_name, notes, created_at, avatar_id, avatar_name, ref_path) in rows {
+            // New friend
+            if current_friend_id.as_deref() != Some(&friend_id) {
+                friends.push(Friend {
+                    id: friend_id.clone(),
+                    name: friend_name,
+                    notes,
+                    avatars: vec![],
+                    created_at,
+                });
+                current_friend_id = Some(friend_id);
+                current_avatar_id = None;
+            }
+
+            let friend = friends.last_mut().unwrap();
+
+            // New avatar (if present)
+            if let (Some(av_id), Some(av_name)) = (&avatar_id, &avatar_name) {
+                if current_avatar_id.as_deref() != Some(av_id) {
+                    friend.avatars.push(Avatar {
+                        id: av_id.clone(),
+                        friend_id: friend.id.clone(),
+                        name: av_name.clone(),
+                        reference_images: ref_path.into_iter().collect(),
+                    });
+                    current_avatar_id = Some(av_id.clone());
+                } else if let Some(last_avatar) = friend.avatars.last_mut() {
+                    if let Some(path) = ref_path {
+                        last_avatar.reference_images.push(path);
+                    }
+                }
+            }
         }
 
         Ok(friends)
@@ -613,6 +655,7 @@ impl Database {
 
     // Avatar operations
 
+    #[allow(dead_code)]
     pub fn get_avatars_for_friend(&self, friend_id: &str) -> AppResult<Vec<Avatar>> {
         // Single query using LEFT JOIN to avoid N+1
         let mut stmt = self.conn.prepare(
@@ -1016,6 +1059,13 @@ impl Database {
 
     /// Import data from export file
     pub fn import_data(&self, data: &ExportData) -> AppResult<ImportStats> {
+        // Validate export data version
+        if data.version != "1.0" {
+            return Err(crate::error::AppError::Parse(
+                format!("Unsupported export version: {} (expected 1.0)", data.version),
+            ));
+        }
+
         let mut friends_imported = 0;
         for friend in &data.friends {
             let result = self.conn.execute(
@@ -1110,11 +1160,10 @@ impl Database {
 
     /// Suggest auto albums based on world visit sessions
     pub fn suggest_auto_albums(&self) -> AppResult<Vec<AutoAlbumSuggestion>> {
-        // Group photos by world_name + date (within same day)
-        let mut stmt = self.conn.prepare(
+        // Step 1: Get groups (without concatenating all IDs in SQL)
+        let mut group_stmt = self.conn.prepare(
             "SELECT world_name, DATE(datetime) as visit_date, COUNT(*) as cnt,
-                    MIN(datetime) as first_photo, MAX(datetime) as last_photo,
-                    GROUP_CONCAT(id) as photo_ids
+                    MIN(datetime) as first_photo
              FROM photos
              WHERE world_name IS NOT NULL
              GROUP BY world_name, DATE(datetime)
@@ -1123,24 +1172,31 @@ impl Database {
              LIMIT 20",
         )?;
 
-        let suggestions = stmt
+        let groups: Vec<(String, String, usize, String)> = group_stmt
             .query_map([], |row| {
-                let world_name: String = row.get(0)?;
-                let visit_date: String = row.get(1)?;
-                let photo_count: usize = row.get(2)?;
-                let first_photo: String = row.get(3)?;
-                let photo_ids_str: String = row.get(5)?;
-                let photo_ids: Vec<String> = photo_ids_str.split(',').map(|s| s.to_string()).collect();
-
-                Ok(AutoAlbumSuggestion {
-                    name: format!("{} ({})", world_name, visit_date),
-                    world_name,
-                    date: first_photo,
-                    photo_count,
-                    photo_ids,
-                })
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+
+        // Step 2: Fetch photo IDs per group with a separate query
+        let mut id_stmt = self.conn.prepare(
+            "SELECT id FROM photos WHERE world_name = ?1 AND DATE(datetime) = ?2 ORDER BY datetime",
+        )?;
+
+        let mut suggestions = Vec::new();
+        for (world_name, visit_date, photo_count, first_photo) in groups {
+            let photo_ids: Vec<String> = id_stmt
+                .query_map(params![world_name, visit_date], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            suggestions.push(AutoAlbumSuggestion {
+                name: format!("{} ({})", world_name, visit_date),
+                world_name,
+                date: first_photo,
+                photo_count,
+                photo_ids,
+            });
+        }
 
         Ok(suggestions)
     }

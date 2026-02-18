@@ -11,6 +11,9 @@ pub enum AppError {
     #[error("Parse error: {0}")]
     Parse(String),
 
+    #[error("Lock error: {0}")]
+    Lock(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 
