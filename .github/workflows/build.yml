@@ -143,6 +143,22 @@ jobs:
         env:
           SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
+      # When signing key is unavailable or invalid, remove updater signing config
+      # from tauri.conf.json so Tauri doesn't attempt to decode a bad key.
+      - name: Disable updater signing if key is invalid
+        if: steps.signing.outputs.has_key != 'true'
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const p = 'src-tauri/tauri.conf.json';
+            const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+            delete c.bundle.createUpdaterArtifacts;
+            if (c.plugins?.updater) delete c.plugins.updater.pubkey;
+            fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');
+            console.log('Disabled updater signing in tauri.conf.json');
+          "
+
       # tauri-action handles:
       # 1. Building the app with --target
       # 2. Signing updater artifacts (.sig files) when TAURI_SIGNING_PRIVATE_KEY is set
