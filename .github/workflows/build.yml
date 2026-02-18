@@ -74,7 +74,9 @@ jobs:
         run: pnpm install
 
       # Validate the signing key format before passing it to tauri-action.
-      # Minisign private keys must start with "untrusted comment:" header line.
+      # Minisign private keys have two lines:
+      #   Line 1: "untrusted comment: ..." header
+      #   Line 2: base64-encoded key data (A-Za-z0-9+/= only, no spaces)
       # If the key is missing or malformed, the build proceeds without signing.
       - name: Validate updater signing key
         id: signing
@@ -87,8 +89,19 @@ jobs:
             echo "has_key=false" >> "$GITHUB_OUTPUT"
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY has invalid format (missing 'untrusted comment:' header). Building without updater signing. Please regenerate with: pnpm tauri signer generate"
           else
-            echo "has_key=true" >> "$GITHUB_OUTPUT"
-            echo "Signing key validated successfully."
+            # Validate that line 2 (base64 key body) contains only valid base64 characters.
+            # Invalid chars (e.g. spaces from copy-paste errors) cause "Invalid symbol" decode failures.
+            KEY_BODY=$(echo "$SIGNING_KEY" | sed -n '2p' | tr -d '\r')
+            if [ -z "$KEY_BODY" ]; then
+              echo "has_key=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is missing the base64 key data (line 2). Please regenerate with: pnpm tauri signer generate"
+            elif echo "$KEY_BODY" | grep -q '[^A-Za-z0-9+/=]'; then
+              echo "has_key=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::TAURI_SIGNING_PRIVATE_KEY base64 body contains invalid characters (likely spaces from copy-paste). Please re-copy the key ensuring no extra whitespace, or regenerate with: pnpm tauri signer generate"
+            else
+              echo "has_key=true" >> "$GITHUB_OUTPUT"
+              echo "Signing key validated successfully."
+            fi
           fi
         env:
           SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
