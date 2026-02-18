@@ -4,9 +4,10 @@ use std::sync::atomic::Ordering;
 use tauri::State;
 
 use crate::db::DbState;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::indexer::IndexerState;
 use crate::models::{AppSettings, Friend, IndexingStatus, Photo, SearchResult, WorldVisit};
+use crate::sidecar::SidecarState;
 
 #[tauri::command]
 pub fn get_photos(
@@ -248,4 +249,70 @@ pub fn select_folder() -> AppResult<Option<String>> {
 pub fn start_watcher(app_handle: tauri::AppHandle) -> AppResult<()> {
     crate::start_watcher_from_settings(&app_handle);
     Ok(())
+}
+
+/// Check if the Python AI sidecar is running
+#[tauri::command]
+pub async fn check_sidecar(sidecar: State<'_, SidecarState>) -> AppResult<bool> {
+    match sidecar.check_health().await {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Generate AI captions for photos that don't have one yet
+#[tauri::command]
+pub async fn generate_captions(
+    batch_size: Option<i64>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<usize> {
+    let limit = batch_size.unwrap_or(10);
+
+    let photos = {
+        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        db.get_photos_without_caption(limit)?
+    };
+
+    if photos.is_empty() {
+        return Ok(0);
+    }
+
+    let paths: Vec<std::path::PathBuf> = photos.iter().map(|p| PathBuf::from(&p.filepath)).collect();
+    let path_refs: Vec<&std::path::Path> = paths.iter().map(|p| p.as_path()).collect();
+
+    let result = sidecar.caption_batch(&path_refs).await?;
+
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let mut captioned = 0;
+
+    for caption_result in &result.results {
+        if let Some(caption) = &caption_result.caption {
+            // Find the matching photo by filepath
+            if let Some(photo) = photos.iter().find(|p| p.filepath == caption_result.path) {
+                db.update_photo_caption(&photo.id, caption)?;
+                captioned += 1;
+            }
+        }
+    }
+
+    log::info!("Generated {} captions for {} photos", captioned, photos.len());
+    Ok(captioned)
+}
+
+/// Get sidecar health info
+#[tauri::command]
+pub async fn get_sidecar_status(
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<serde_json::Value> {
+    match sidecar.check_health().await {
+        Ok(health) => Ok(serde_json::json!({
+            "available": true,
+            "gpu_available": health.gpu_available,
+        })),
+        Err(_) => Ok(serde_json::json!({
+            "available": false,
+            "gpu_available": false,
+        })),
+    }
 }

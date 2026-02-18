@@ -122,3 +122,21 @@ export async function parseLogs(logFolder: string): Promise<number> {
 export async function startWatcher(): Promise<void> {
   return invoke("start_watcher");
 }
+
+// AI Sidecar commands
+export interface SidecarStatus {
+  available: boolean;
+  gpu_available: boolean;
+}
+
+export async function checkSidecar(): Promise<boolean> {
+  return invoke("check_sidecar");
+}
+
+export async function getSidecarStatus(): Promise<SidecarStatus> {
+  return invoke("get_sidecar_status");
+}
+
+export async function generateCaptions(batchSize?: number): Promise<number> {
+  return invoke("generate_captions", { batchSize: batchSize ?? null });
+}

@@ -1,6 +1,14 @@
 import { useState, useEffect } from "react";
-import { getSettings, updateSettings, startIndexing, getIndexingStatus, startWatcher } from "@/lib/api";
-import type { AppSettings } from "@/lib/api";
+import {
+  getSettings,
+  updateSettings,
+  startIndexing,
+  getIndexingStatus,
+  startWatcher,
+  getSidecarStatus,
+  generateCaptions,
+} from "@/lib/api";
+import type { AppSettings, SidecarStatus } from "@/lib/api";
 
 function Settings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -10,6 +18,9 @@ function Settings() {
   const [indexStatus, setIndexStatus] = useState("");
   const [photoFolder, setPhotoFolder] = useState("");
   const [logFolder, setLogFolder] = useState("");
+  const [sidecar, setSidecar] = useState<SidecarStatus | null>(null);
+  const [captioning, setCaptioning] = useState(false);
+  const [captionStatus, setCaptionStatus] = useState("");
 
   useEffect(() => {
     getSettings()
@@ -20,6 +31,11 @@ function Settings() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Check sidecar status
+    getSidecarStatus()
+      .then(setSidecar)
+      .catch(() => setSidecar({ available: false, gpu_available: false }));
   }, []);
 
   const handleSave = async () => {
@@ -32,7 +48,6 @@ function Settings() {
       setSettings((prev) =>
         prev ? { ...prev, photo_folder: photoFolder, log_folder: logFolder } : prev,
       );
-      // Restart watcher with new folders
       await startWatcher().catch(() => {});
     } catch {
       // Error
@@ -46,19 +61,14 @@ function Settings() {
     setIndexStatus("インデックスを開始中...");
     try {
       await startIndexing();
-      // Poll status
       const poll = setInterval(async () => {
         try {
           const status = await getIndexingStatus();
-          setIndexStatus(
-            `処理中: ${status.processed}/${status.total}`,
-          );
+          setIndexStatus(`処理中: ${status.processed}/${status.total}`);
           if (!status.is_running) {
             clearInterval(poll);
             setIndexing(false);
-            setIndexStatus(
-              `完了: ${status.processed} 件を処理しました`,
-            );
+            setIndexStatus(`完了: ${status.processed} 件を処理しました`);
           }
         } catch {
           clearInterval(poll);
@@ -68,6 +78,23 @@ function Settings() {
     } catch {
       setIndexing(false);
       setIndexStatus("エラーが発生しました");
+    }
+  };
+
+  const handleGenerateCaptions = async () => {
+    setCaptioning(true);
+    setCaptionStatus("キャプション生成中...");
+    try {
+      const count = await generateCaptions(20);
+      setCaptionStatus(
+        count > 0
+          ? `${count} 枚の写真にキャプションを生成しました`
+          : "キャプション未生成の写真がありません",
+      );
+    } catch {
+      setCaptionStatus("エラー: AIサイドカーに接続できません");
+    } finally {
+      setCaptioning(false);
     }
   };
 
@@ -154,6 +181,63 @@ function Settings() {
           {indexStatus && (
             <span className="text-sm text-[var(--color-text-muted)]">
               {indexStatus}
+            </span>
+          )}
+        </div>
+      </section>
+
+      {/* AI Sidecar */}
+      <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium">AI処理 (サイドカー)</h3>
+          {sidecar && (
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-block h-2 w-2 rounded-full ${
+                  sidecar.available ? "bg-green-400" : "bg-red-400"
+                }`}
+              />
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {sidecar.available
+                  ? sidecar.gpu_available
+                    ? "GPU利用可能"
+                    : "CPU動作中"
+                  : "未接続"}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <p className="text-sm text-[var(--color-text-muted)]">
+          Python AIサイドカーを使って写真にキャプションを自動生成します。
+          <br />
+          <code className="text-xs">cd python-sidecar && python main.py</code>{" "}
+          でサイドカーを起動してください。
+        </p>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleGenerateCaptions}
+            disabled={captioning || !sidecar?.available}
+            className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+          >
+            {captioning ? "生成中..." : "キャプション生成"}
+          </button>
+          <button
+            onClick={() => {
+              getSidecarStatus()
+                .then(setSidecar)
+                .catch(() =>
+                  setSidecar({ available: false, gpu_available: false }),
+                );
+            }}
+            className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+          >
+            再接続
+          </button>
+          {captionStatus && (
+            <span className="text-sm text-[var(--color-text-muted)]">
+              {captionStatus}
             </span>
           )}
         </div>

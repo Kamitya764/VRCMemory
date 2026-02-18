@@ -322,6 +322,53 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_photo_caption(&self, photo_id: &str, caption: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE photos SET caption = ?1 WHERE id = ?2",
+            params![caption, photo_id],
+        )?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn update_photo_tags(&self, photo_id: &str, tags: &[String]) -> AppResult<()> {
+        let tags_json = serde_json::to_string(tags).unwrap_or_default();
+        self.conn.execute(
+            "UPDATE photos SET tags = ?1 WHERE id = ?2",
+            params![tags_json, photo_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_photos_without_caption(&self, limit: i64) -> AppResult<Vec<Photo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+             FROM photos WHERE caption IS NULL ORDER BY datetime DESC LIMIT ?1",
+        )?;
+
+        let photos = stmt
+            .query_map(params![limit], |row| {
+                let tags_str: String = row.get(6)?;
+                let tags: Vec<String> =
+                    serde_json::from_str(&tags_str).unwrap_or_default();
+                Ok(Photo {
+                    id: row.get(0)?,
+                    filepath: row.get(1)?,
+                    filename: row.get(2)?,
+                    datetime: row.get(3)?,
+                    world_name: row.get(4)?,
+                    world_id: row.get(5)?,
+                    tags,
+                    caption: row.get(7)?,
+                    thumbnail_path: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(photos)
+    }
+
     pub fn photo_exists(&self, filepath: &str) -> AppResult<bool> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM photos WHERE filepath = ?1",
@@ -375,6 +422,7 @@ impl Database {
         Ok((photos, total))
     }
 
+    #[allow(dead_code)]
     pub fn get_photo_count(&self) -> AppResult<usize> {
         let count: usize = self
             .conn

@@ -3,6 +3,8 @@ mod db;
 mod error;
 mod indexer;
 mod models;
+#[allow(dead_code)]
+mod sidecar;
 mod vrchat_log;
 mod watcher;
 
@@ -45,6 +47,9 @@ pub fn run() {
             // Initialize watcher state (starts empty, activated after settings are loaded)
             app.manage(WatcherState(Mutex::new(None)));
 
+            // Initialize sidecar client
+            app.manage(sidecar::SidecarState::new());
+
             // Start watcher if settings already have folders configured
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -71,6 +76,9 @@ pub fn run() {
             commands::parse_logs,
             commands::select_folder,
             commands::start_watcher,
+            commands::check_sidecar,
+            commands::generate_captions,
+            commands::get_sidecar_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -6,6 +6,7 @@ use crate::error::{AppError, AppResult};
 
 /// Represents a parsed VRChat log entry
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum LogEntry {
     WorldJoin {
         timestamp: String,
