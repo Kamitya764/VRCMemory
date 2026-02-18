@@ -1,0 +1,305 @@
+use rusqlite::{params, Connection};
+use std::path::Path;
+use std::sync::Mutex;
+
+use crate::error::AppResult;
+use crate::models::{AppSettings, Friend, Photo, WorldVisit};
+
+pub struct DbState(pub Mutex<Database>);
+
+pub struct Database {
+    conn: Connection,
+}
+
+impl Database {
+    pub fn new(path: &Path) -> AppResult<Self> {
+        let conn = Connection::open(path)?;
+        let db = Self { conn };
+        db.initialize_tables()?;
+        Ok(db)
+    }
+
+    fn initialize_tables(&self) -> AppResult<()> {
+        self.conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS photos (
+                id TEXT PRIMARY KEY,
+                filepath TEXT NOT NULL UNIQUE,
+                filename TEXT NOT NULL,
+                datetime TEXT NOT NULL,
+                world_name TEXT,
+                world_id TEXT,
+                tags TEXT DEFAULT '[]',
+                caption TEXT,
+                thumbnail_path TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS world_visits (
+                id TEXT PRIMARY KEY,
+                world_name TEXT NOT NULL,
+                world_id TEXT NOT NULL,
+                entered_at TEXT NOT NULL,
+                left_at TEXT,
+                players TEXT DEFAULT '[]',
+                instance_type TEXT DEFAULT 'unknown',
+                rating INTEGER,
+                notes TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS friends (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS avatars (
+                id TEXT PRIMARY KEY,
+                friend_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (friend_id) REFERENCES friends(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS avatar_references (
+                id TEXT PRIMARY KEY,
+                avatar_id TEXT NOT NULL,
+                image_path TEXT NOT NULL,
+                FOREIGN KEY (avatar_id) REFERENCES avatars(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS albums (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS album_photos (
+                album_id TEXT NOT NULL,
+                photo_id TEXT NOT NULL,
+                PRIMARY KEY (album_id, photo_id),
+                FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+                FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS watch_folders (
+                id TEXT PRIMARY KEY,
+                path TEXT NOT NULL UNIQUE,
+                folder_type TEXT NOT NULL DEFAULT 'photo',
+                enabled INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_photos_datetime ON photos(datetime);
+            CREATE INDEX IF NOT EXISTS idx_photos_world_name ON photos(world_name);
+            CREATE INDEX IF NOT EXISTS idx_world_visits_entered ON world_visits(entered_at);
+            CREATE INDEX IF NOT EXISTS idx_avatars_friend ON avatars(friend_id);
+            ",
+        )?;
+        Ok(())
+    }
+
+    // Photo operations
+    pub fn get_photos(&self, offset: i64, limit: i64) -> AppResult<(Vec<Photo>, usize)> {
+        let total: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+             FROM photos ORDER BY datetime DESC LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let photos = stmt
+            .query_map(params![limit, offset], |row| {
+                let tags_str: String = row.get(6)?;
+                let tags: Vec<String> =
+                    serde_json::from_str(&tags_str).unwrap_or_default();
+                Ok(Photo {
+                    id: row.get(0)?,
+                    filepath: row.get(1)?,
+                    filename: row.get(2)?,
+                    datetime: row.get(3)?,
+                    world_name: row.get(4)?,
+                    world_id: row.get(5)?,
+                    tags,
+                    caption: row.get(7)?,
+                    thumbnail_path: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((photos, total))
+    }
+
+    pub fn insert_photo(&self, photo: &Photo) -> AppResult<()> {
+        let tags_json = serde_json::to_string(&photo.tags).unwrap_or_default();
+        self.conn.execute(
+            "INSERT OR IGNORE INTO photos (id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                photo.id,
+                photo.filepath,
+                photo.filename,
+                photo.datetime,
+                photo.world_name,
+                photo.world_id,
+                tags_json,
+                photo.caption,
+                photo.thumbnail_path,
+                photo.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_photo_by_id(&self, id: &str) -> AppResult<Option<Photo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+             FROM photos WHERE id = ?1",
+        )?;
+
+        let result = stmt
+            .query_row(params![id], |row| {
+                let tags_str: String = row.get(6)?;
+                let tags: Vec<String> =
+                    serde_json::from_str(&tags_str).unwrap_or_default();
+                Ok(Photo {
+                    id: row.get(0)?,
+                    filepath: row.get(1)?,
+                    filename: row.get(2)?,
+                    datetime: row.get(3)?,
+                    world_name: row.get(4)?,
+                    world_id: row.get(5)?,
+                    tags,
+                    caption: row.get(7)?,
+                    thumbnail_path: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })
+            .ok();
+
+        Ok(result)
+    }
+
+    // World visit operations
+    pub fn get_world_history(&self) -> AppResult<Vec<WorldVisit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, world_name, world_id, entered_at, left_at, players, instance_type, rating, notes
+             FROM world_visits ORDER BY entered_at DESC",
+        )?;
+
+        let visits = stmt
+            .query_map([], |row| {
+                let players_str: String = row.get(5)?;
+                let players: Vec<String> =
+                    serde_json::from_str(&players_str).unwrap_or_default();
+                Ok(WorldVisit {
+                    id: row.get(0)?,
+                    world_name: row.get(1)?,
+                    world_id: row.get(2)?,
+                    entered_at: row.get(3)?,
+                    left_at: row.get(4)?,
+                    players,
+                    instance_type: row.get(6)?,
+                    rating: row.get(7)?,
+                    notes: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(visits)
+    }
+
+    pub fn insert_world_visit(&self, visit: &WorldVisit) -> AppResult<()> {
+        let players_json = serde_json::to_string(&visit.players).unwrap_or_default();
+        self.conn.execute(
+            "INSERT OR IGNORE INTO world_visits (id, world_name, world_id, entered_at, left_at, players, instance_type, rating, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                visit.id,
+                visit.world_name,
+                visit.world_id,
+                visit.entered_at,
+                visit.left_at,
+                players_json,
+                visit.instance_type,
+                visit.rating,
+                visit.notes,
+            ],
+        )?;
+        Ok(())
+    }
+
+    // Friend operations
+    pub fn get_friends(&self) -> AppResult<Vec<Friend>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, notes, created_at FROM friends ORDER BY name")?;
+
+        let friends = stmt
+            .query_map([], |row| {
+                Ok(Friend {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    notes: row.get(2)?,
+                    avatars: vec![],
+                    created_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(friends)
+    }
+
+    pub fn insert_friend(&self, friend: &Friend) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO friends (id, name, notes, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![friend.id, friend.name, friend.notes, friend.created_at],
+        )?;
+        Ok(())
+    }
+
+    // Settings operations
+    pub fn get_settings(&self) -> AppResult<AppSettings> {
+        let mut settings = AppSettings::default();
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value FROM settings")?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        for row in rows {
+            if let Ok((key, value)) = row {
+                match key.as_str() {
+                    "photo_folder" => settings.photo_folder = value,
+                    "log_folder" => settings.log_folder = value,
+                    "theme" => settings.theme = value,
+                    "gpu_enabled" => settings.gpu_enabled = value == "true",
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(settings)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+}

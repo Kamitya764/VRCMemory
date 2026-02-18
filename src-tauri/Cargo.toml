@@ -1,0 +1,34 @@
+[package]
+name = "vrcmemory"
+version = "0.1.0"
+description = "VRChatの思い出をAIで整理し、雑な言葉で見つけ出せるデスクトップアプリ"
+authors = ["you"]
+license = "MIT"
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "vrcmemory_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.4" }
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+tauri = { version = "2.10.0", features = ["tray-icon"] }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+rusqlite = { version = "0.34", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+notify = "8"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+regex = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+glob = "0.3"
