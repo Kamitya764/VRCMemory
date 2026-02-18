@@ -52,6 +52,13 @@ export interface AppSettings {
   gpu_enabled: boolean;
 }
 
+export interface PhotoStats {
+  total: number;
+  with_caption: number;
+  with_world: number;
+  with_thumbnail: number;
+}
+
 // Photo commands
 export async function getPhotos(
   offset: number,
@@ -68,9 +75,35 @@ export async function getPhotoDetail(id: string): Promise<Photo | null> {
   return invoke("get_photo_detail", { id });
 }
 
+export async function deletePhoto(id: string): Promise<void> {
+  return invoke("delete_photo", { id });
+}
+
+export async function deletePhotos(ids: string[]): Promise<number> {
+  return invoke("delete_photos", { ids });
+}
+
+export async function getPhotoStats(): Promise<PhotoStats> {
+  return invoke("get_photo_stats");
+}
+
 // World commands
 export async function getWorldHistory(): Promise<WorldVisit[]> {
   return invoke("get_world_history");
+}
+
+export async function updateWorldRating(
+  id: string,
+  rating: number | null,
+): Promise<void> {
+  return invoke("update_world_rating", { id, rating });
+}
+
+export async function updateWorldNotes(
+  id: string,
+  notes: string | null,
+): Promise<void> {
+  return invoke("update_world_notes", { id, notes });
 }
 
 // Friend commands
@@ -84,6 +117,20 @@ export async function addFriend(name: string): Promise<Friend> {
 
 export async function deleteFriend(id: string): Promise<void> {
   return invoke("delete_friend", { id });
+}
+
+export async function updateFriendNotes(
+  id: string,
+  notes: string | null,
+): Promise<void> {
+  return invoke("update_friend_notes", { id, notes });
+}
+
+export async function updateFriendName(
+  id: string,
+  name: string,
+): Promise<void> {
+  return invoke("update_friend_name", { id, name });
 }
 
 // Settings commands
@@ -116,6 +163,10 @@ export async function scanPhotos(folder: string): Promise<number> {
 
 export async function parseLogs(logFolder: string): Promise<number> {
   return invoke("parse_logs", { logFolder });
+}
+
+export async function generateThumbnails(): Promise<number> {
+  return invoke("generate_thumbnails");
 }
 
 // Watcher commands

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { View } from "@/App";
 import type { Photo } from "@/lib/api";
-import { searchPhotos, getPhotos } from "@/lib/api";
+import { searchPhotos, getPhotos, deletePhotos } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
 
@@ -147,6 +147,18 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     setSelectedIds(new Set(visiblePhotos.map((p) => p.id)));
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await deletePhotos([...selectedIds]);
+      setDisplayPhotos((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+      clearSelection();
+      onRefresh();
+    } catch {
+      // Error
+    }
+  };
+
   const handlePhotoClick = (photo: Photo) => {
     if (selectionMode) {
       toggleSelection(photo.id);
@@ -217,6 +229,14 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
               >
                 全選択
               </button>
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleDeleteSelected}
+                  className="rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                >
+                  削除
+                </button>
+              )}
               <button
                 onClick={clearSelection}
                 className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
@@ -248,9 +268,17 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
         </div>
       </div>
 
-      {/* Photo grid */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {visiblePhotos.map((photo) => (
+      {/* Photo grid with date groups */}
+      {groupPhotosByDate(visiblePhotos).map((group) => (
+        <div key={group.date} className="mb-6">
+          <h3 className="mb-2 text-sm font-medium text-[var(--color-text-muted)]">
+            {group.label}
+            <span className="ml-2 text-xs font-normal">
+              {group.photos.length} 枚
+            </span>
+          </h3>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        {group.photos.map((photo) => (
           <button
             key={photo.id}
             onClick={() => handlePhotoClick(photo)}
@@ -304,7 +332,9 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
             </div>
           </button>
         ))}
-      </div>
+          </div>
+        </div>
+      ))}
 
       {/* Infinite scroll sentinel */}
       {(hasMore || sortedPhotos.length > visibleCount) && (
@@ -325,6 +355,51 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
       />
     </div>
   );
+}
+
+interface DateGroup {
+  date: string;
+  label: string;
+  photos: Photo[];
+}
+
+function groupPhotosByDate(photos: Photo[]): DateGroup[] {
+  const groups = new Map<string, Photo[]>();
+  for (const photo of photos) {
+    const dateKey = photo.datetime.slice(0, 10); // YYYY-MM-DD
+    if (!groups.has(dateKey)) {
+      groups.set(dateKey, []);
+    }
+    groups.get(dateKey)!.push(photo);
+  }
+
+  return [...groups.entries()].map(([date, datePhotos]) => ({
+    date,
+    label: formatDateLabel(date),
+    photos: datePhotos,
+  }));
+}
+
+function formatDateLabel(dateStr: string): string {
+  try {
+    const date = new Date(dateStr + "T00:00:00");
+    const now = new Date();
+    const diffDays = Math.floor(
+      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24),
+    );
+
+    if (diffDays === 0) return "今日";
+    if (diffDays === 1) return "昨日";
+    if (diffDays < 7) return `${diffDays}日前`;
+
+    return date.toLocaleDateString("ja-JP", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
 function formatDate(datetime: string): string {

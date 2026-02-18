@@ -79,6 +79,14 @@ pub fn run() {
             commands::check_sidecar,
             commands::generate_captions,
             commands::get_sidecar_status,
+            commands::delete_photo,
+            commands::delete_photos,
+            commands::update_world_rating,
+            commands::update_world_notes,
+            commands::update_friend_notes,
+            commands::update_friend_name,
+            commands::generate_thumbnails,
+            commands::get_photo_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

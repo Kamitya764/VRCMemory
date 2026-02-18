@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::db::DbState;
 use crate::error::{AppError, AppResult};
@@ -315,4 +315,93 @@ pub async fn get_sidecar_status(
             "gpu_available": false,
         })),
     }
+}
+
+/// Delete a single photo from the database
+#[tauri::command]
+pub fn delete_photo(
+    id: String,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.delete_photo(&id)
+}
+
+/// Delete multiple photos from the database
+#[tauri::command]
+pub fn delete_photos(
+    ids: Vec<String>,
+    db: State<DbState>,
+) -> AppResult<usize> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.delete_photos(&ids)
+}
+
+/// Update world visit rating
+#[tauri::command]
+pub fn update_world_rating(
+    id: String,
+    rating: Option<i32>,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.update_world_visit_rating(&id, rating)
+}
+
+/// Update world visit notes
+#[tauri::command]
+pub fn update_world_notes(
+    id: String,
+    notes: Option<String>,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.update_world_visit_notes(&id, notes.as_deref())
+}
+
+/// Update friend notes
+#[tauri::command]
+pub fn update_friend_notes(
+    id: String,
+    notes: Option<String>,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.update_friend_notes(&id, notes.as_deref())
+}
+
+/// Update friend name
+#[tauri::command]
+pub fn update_friend_name(
+    id: String,
+    name: String,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.update_friend_name(&id, &name)
+}
+
+/// Generate thumbnails for all photos
+#[tauri::command]
+pub fn generate_thumbnails(
+    app_handle: tauri::AppHandle,
+    db: State<DbState>,
+    indexer_state: State<IndexerState>,
+) -> AppResult<usize> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e: tauri::Error| AppError::Parse(e.to_string()))?;
+    let thumbnails_dir = app_data_dir.join("thumbnails");
+
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    crate::indexer::generate_thumbnails_batch(&db, &thumbnails_dir, &indexer_state)
+}
+
+/// Get photo statistics
+#[tauri::command]
+pub fn get_photo_stats(db: State<DbState>) -> AppResult<serde_json::Value> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let stats = db.get_photo_stats()?;
+    Ok(serde_json::to_value(stats).unwrap_or_default())
 }

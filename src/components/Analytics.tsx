@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { getWorldHistory } from "@/lib/api";
-import type { WorldVisit } from "@/lib/api";
+import { getWorldHistory, getPhotoStats } from "@/lib/api";
+import type { WorldVisit, PhotoStats } from "@/lib/api";
 
 interface Stats {
   totalVisits: number;
@@ -13,11 +13,14 @@ interface Stats {
 
 function Analytics() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [photoStats, setPhotoStats] = useState<PhotoStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getWorldHistory()
-      .then((visits) => setStats(computeStats(visits)))
+    Promise.all([
+      getWorldHistory().then((visits) => setStats(computeStats(visits))),
+      getPhotoStats().then(setPhotoStats).catch(() => {}),
+    ])
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -34,6 +37,9 @@ function Analytics() {
     return (
       <div className="space-y-6">
         <h2 className="text-lg font-semibold">プレイスタイル分析</h2>
+        {photoStats && photoStats.total > 0 && (
+          <PhotoStatsCards stats={photoStats} />
+        )}
         <div className="grid grid-cols-2 gap-4">
           <EmptyCard title="活動時間帯" />
           <EmptyCard title="ワールドランキング" />
@@ -55,6 +61,11 @@ function Analytics() {
           {formatPlaytime(stats.totalPlaytimeMin)}
         </span>
       </div>
+
+      {/* Photo stats summary */}
+      {photoStats && photoStats.total > 0 && (
+        <PhotoStatsCards stats={photoStats} />
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Hourly activity */}
@@ -175,6 +186,34 @@ function Analytics() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function PhotoStatsCards({ stats }: { stats: PhotoStats }) {
+  const cards = [
+    { label: "写真", value: stats.total.toLocaleString(), suffix: "枚" },
+    { label: "キャプション済", value: stats.with_caption.toLocaleString(), suffix: "枚" },
+    { label: "ワールド紐付", value: stats.with_world.toLocaleString(), suffix: "枚" },
+    { label: "サムネイル", value: stats.with_thumbnail.toLocaleString(), suffix: "枚" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {cards.map((card) => (
+        <div
+          key={card.label}
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
+        >
+          <p className="text-xs text-[var(--color-text-muted)]">{card.label}</p>
+          <p className="mt-1 text-xl font-semibold">
+            {card.value}
+            <span className="ml-1 text-xs font-normal text-[var(--color-text-muted)]">
+              {card.suffix}
+            </span>
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

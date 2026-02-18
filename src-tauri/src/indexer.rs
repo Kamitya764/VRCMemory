@@ -1,10 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use image::imageops::FilterType;
+
 use crate::db::Database;
 use crate::error::AppResult;
 use crate::models::{IndexingStatus, Photo};
 use crate::vrchat_log::{LogEntry, VRChatLogParser};
+
+const THUMBNAIL_SIZE: u32 = 320;
 
 /// Shared indexing state accessible from commands
 pub struct IndexerState {
@@ -205,6 +209,69 @@ fn build_sessions_from_entries(entries: &[LogEntry]) -> Vec<WorldSession> {
     sessions
 }
 
+/// Generate a thumbnail for a photo, returns the thumbnail path
+pub fn generate_thumbnail(filepath: &Path, thumbnails_dir: &Path) -> AppResult<PathBuf> {
+    std::fs::create_dir_all(thumbnails_dir)?;
+
+    let filename = filepath
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    let thumb_path = thumbnails_dir.join(format!("{}_thumb.jpg", filename));
+
+    if thumb_path.exists() {
+        return Ok(thumb_path);
+    }
+
+    let img = image::open(filepath).map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+    let thumbnail = img.resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, FilterType::Triangle);
+    thumbnail
+        .save(&thumb_path)
+        .map_err(|e| crate::error::AppError::Parse(e.to_string()))?;
+
+    Ok(thumb_path)
+}
+
+/// Generate thumbnails for all photos that don't have one
+pub fn generate_thumbnails_batch(
+    db: &Database,
+    thumbnails_dir: &Path,
+    state: &IndexerState,
+) -> AppResult<usize> {
+    let (photos, _) = db.get_photos(0, i64::MAX)?;
+    let without_thumb: Vec<&Photo> = photos
+        .iter()
+        .filter(|p| p.thumbnail_path.is_none())
+        .collect();
+
+    let total = without_thumb.len();
+    state.total.store(total, Ordering::Relaxed);
+    state.processed.store(0, Ordering::Relaxed);
+    state.is_running.store(true, Ordering::Relaxed);
+
+    let mut generated = 0;
+    for (i, photo) in without_thumb.iter().enumerate() {
+        let photo_path = Path::new(&photo.filepath);
+        if photo_path.exists() {
+            match generate_thumbnail(photo_path, thumbnails_dir) {
+                Ok(thumb_path) => {
+                    let thumb_str = thumb_path.to_string_lossy().to_string();
+                    if db.update_photo_thumbnail(&photo.id, &thumb_str).is_ok() {
+                        generated += 1;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to generate thumbnail for {}: {}", photo.filepath, e);
+                }
+            }
+        }
+        state.processed.store(i + 1, Ordering::Relaxed);
+    }
+
+    state.is_running.store(false, Ordering::Relaxed);
+    Ok(generated)
+}
+
 /// Match photos to world sessions based on timestamp
 pub fn match_photos_to_sessions(
     db: &Database,
@@ -297,6 +364,37 @@ mod tests {
             normalize_timestamp("2024-01-15T20:30:00"),
             "2024-01-15T20:30:00"
         );
+    }
+
+    #[test]
+    fn test_is_timestamp_in_session() {
+        let session = WorldSession {
+            world_name: "Test".to_string(),
+            world_id: "wrld_test".to_string(),
+            instance_type: "Public".to_string(),
+            entered_at: "2024-01-15T20:00:00".to_string(),
+            left_at: Some("2024-01-15T21:00:00".to_string()),
+            players: vec![],
+        };
+        assert!(is_timestamp_in_session("2024-01-15T20:30:00", &session));
+        assert!(!is_timestamp_in_session("2024-01-15T19:00:00", &session));
+        assert!(!is_timestamp_in_session("2024-01-15T22:00:00", &session));
+        assert!(is_timestamp_in_session("2024-01-15T20:00:00", &session));
+        assert!(is_timestamp_in_session("2024-01-15T21:00:00", &session));
+    }
+
+    #[test]
+    fn test_is_timestamp_in_open_session() {
+        let session = WorldSession {
+            world_name: "Test".to_string(),
+            world_id: "wrld_test".to_string(),
+            instance_type: "Public".to_string(),
+            entered_at: "2024-01-15T20:00:00".to_string(),
+            left_at: None,
+            players: vec![],
+        };
+        assert!(is_timestamp_in_session("2024-01-15T23:59:59", &session));
+        assert!(!is_timestamp_in_session("2024-01-15T19:00:00", &session));
     }
 
     #[test]

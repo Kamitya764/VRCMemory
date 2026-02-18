@@ -428,4 +428,99 @@ impl Database {
             .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))?;
         Ok(count)
     }
+
+    pub fn delete_photo(&self, id: &str) -> AppResult<()> {
+        self.conn
+            .execute("DELETE FROM photos WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn delete_photos(&self, ids: &[String]) -> AppResult<usize> {
+        let mut deleted = 0;
+        for id in ids {
+            self.conn
+                .execute("DELETE FROM photos WHERE id = ?1", params![id])?;
+            deleted += 1;
+        }
+        Ok(deleted)
+    }
+
+    pub fn update_photo_thumbnail(&self, photo_id: &str, thumbnail_path: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE photos SET thumbnail_path = ?1 WHERE id = ?2",
+            params![thumbnail_path, photo_id],
+        )?;
+        Ok(())
+    }
+
+    // World visit updates
+    pub fn update_world_visit_rating(&self, id: &str, rating: Option<i32>) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE world_visits SET rating = ?1 WHERE id = ?2",
+            params![rating, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_world_visit_notes(&self, id: &str, notes: Option<&str>) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE world_visits SET notes = ?1 WHERE id = ?2",
+            params![notes, id],
+        )?;
+        Ok(())
+    }
+
+    // Friend updates
+    pub fn update_friend_notes(&self, id: &str, notes: Option<&str>) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE friends SET notes = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![notes, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_friend_name(&self, id: &str, name: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE friends SET name = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![name, id],
+        )?;
+        Ok(())
+    }
+
+    // Photo stats for analytics
+    pub fn get_photo_stats(&self) -> AppResult<PhotoStats> {
+        let total: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))?;
+        let with_caption: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE caption IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        let with_world: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE world_name IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        let with_thumbnail: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE thumbnail_path IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(PhotoStats {
+            total,
+            with_caption,
+            with_world,
+            with_thumbnail,
+        })
+    }
+}
+
+/// Photo statistics for the analytics dashboard
+#[derive(Debug, serde::Serialize)]
+pub struct PhotoStats {
+    pub total: usize,
+    pub with_caption: usize,
+    pub with_world: usize,
+    pub with_thumbnail: usize,
 }

@@ -1,5 +1,11 @@
-import { useState, useEffect } from "react";
-import { getFriends, addFriend, deleteFriend } from "@/lib/api";
+import { useState, useEffect, useRef } from "react";
+import {
+  getFriends,
+  addFriend,
+  deleteFriend,
+  updateFriendNotes,
+  updateFriendName,
+} from "@/lib/api";
 import type { Friend } from "@/lib/api";
 
 function FriendManager() {
@@ -8,6 +14,7 @@ function FriendManager() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     loadFriends();
@@ -46,6 +53,31 @@ function FriendManager() {
     if (e.key === "Escape") {
       setShowAddForm(false);
       setNewName("");
+    }
+  };
+
+  const handleSaveNotes = async (id: string, notes: string) => {
+    const value = notes.trim() || null;
+    try {
+      await updateFriendNotes(id, value);
+      setFriends((prev) =>
+        prev.map((f) => (f.id === id ? { ...f, notes: value } : f)),
+      );
+    } catch {
+      // Error
+    }
+  };
+
+  const handleRename = async (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      await updateFriendName(id, trimmed);
+      setFriends((prev) =>
+        prev.map((f) => (f.id === id ? { ...f, name: trimmed } : f)),
+      );
+    } catch {
+      // Error
     }
   };
 
@@ -115,43 +147,86 @@ function FriendManager() {
           {friends.map((friend) => (
             <div
               key={friend.id}
-              className="group flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:bg-[var(--color-surface-hover)]"
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-hover)]"
             >
-              {/* Avatar placeholder */}
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-lg">
-                {friend.name.charAt(0).toUpperCase()}
-              </div>
+              <div className="flex items-center gap-3 p-3">
+                {/* Avatar placeholder */}
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-lg">
+                  {friend.name.charAt(0).toUpperCase()}
+                </div>
 
-              <div className="flex-1">
-                <h3 className="font-medium">{friend.name}</h3>
-                {friend.notes && (
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    {friend.notes}
-                  </p>
-                )}
-              </div>
-
-              <span className="text-xs text-[var(--color-text-muted)]">
-                {formatDate(friend.created_at)}
-              </span>
-
-              <button
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  try {
-                    await deleteFriend(friend.id);
-                    await loadFriends();
-                  } catch {
-                    // Error
+                <button
+                  onClick={() =>
+                    setExpandedId(
+                      expandedId === friend.id ? null : friend.id,
+                    )
                   }
-                }}
-                className="rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
-                title="削除"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </button>
+                  className="flex-1 text-left"
+                >
+                  <h3 className="font-medium">{friend.name}</h3>
+                  {friend.notes && (
+                    <p className="text-xs text-[var(--color-text-muted)]">
+                      {friend.notes}
+                    </p>
+                  )}
+                </button>
+
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  {formatDate(friend.created_at)}
+                </span>
+
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await deleteFriend(friend.id);
+                      await loadFriends();
+                    } catch {
+                      // Error
+                    }
+                  }}
+                  className="rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 [.group:hover>&]:opacity-100"
+                  title="削除"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                  >
+                    <path
+                      d="M3 3L11 11M11 3L3 11"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Expanded edit panel */}
+              {expandedId === friend.id && (
+                <div className="border-t border-[var(--color-border)] px-4 pb-4 pt-3">
+                  <div className="space-y-3">
+                    <InlineEdit
+                      label="名前"
+                      value={friend.name}
+                      onSave={(name) => handleRename(friend.id, name)}
+                    />
+                    <div>
+                      <span className="text-xs text-[var(--color-text-muted)]">
+                        メモ
+                      </span>
+                      <NotesArea
+                        value={friend.notes || ""}
+                        onSave={(text) =>
+                          handleSaveNotes(friend.id, text)
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -161,6 +236,96 @@ function FriendManager() {
         {friends.length} 人のフレンド
       </p>
     </div>
+  );
+}
+
+function InlineEdit({
+  label,
+  value,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  onSave: (val: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  if (!editing) {
+    return (
+      <div>
+        <span className="text-xs text-[var(--color-text-muted)]">{label}</span>
+        <button
+          onClick={() => {
+            setText(value);
+            setEditing(true);
+          }}
+          className="block text-sm transition-colors hover:text-[var(--color-primary)]"
+        >
+          {value}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <span className="text-xs text-[var(--color-text-muted)]">{label}</span>
+      <input
+        ref={inputRef}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            onSave(text);
+            setEditing(false);
+          }
+          if (e.key === "Escape") setEditing(false);
+        }}
+        onBlur={() => {
+          onSave(text);
+          setEditing(false);
+        }}
+        className="block w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm outline-none focus:border-[var(--color-primary)]"
+      />
+    </div>
+  );
+}
+
+function NotesArea({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (val: string) => void;
+}) {
+  const [text, setText] = useState(value);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const debouncedSave = (newText: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => onSave(newText), 800);
+  };
+
+  return (
+    <textarea
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        debouncedSave(e.target.value);
+      }}
+      rows={2}
+      className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs outline-none focus:border-[var(--color-primary)]"
+      placeholder="メモを入力..."
+    />
   );
 }
 
