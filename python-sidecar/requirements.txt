@@ -19,6 +19,13 @@ ultralytics>=8.0.0
 manga-ocr>=0.1.11
 easyocr>=1.7.0
 
+# Vector database
+lancedb>=0.6.0
+pyarrow>=15.0.0
+
+# Full-text search
+meilisearch>=0.31.0
+
 # Utilities
 numpy>=1.24.0
 pydantic>=2.0.0

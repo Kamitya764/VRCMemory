@@ -51,6 +51,16 @@ pub struct Avatar {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Album {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub photo_count: usize,
+    pub cover_photo: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     pub photo_folder: String,
     pub log_folder: String,
@@ -74,4 +84,49 @@ pub struct IndexingStatus {
     pub total: usize,
     pub processed: usize,
     pub is_running: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportData {
+    pub version: String,
+    pub exported_at: String,
+    pub friends: Vec<Friend>,
+    pub world_visits: Vec<WorldVisit>,
+    pub albums: Vec<AlbumExport>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AlbumExport {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub photo_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportStats {
+    pub friends_imported: usize,
+    pub world_visits_imported: usize,
+    pub albums_imported: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Encounter {
+    pub id: String,
+    pub friend_id: String,
+    pub friend_name: String,
+    pub world_name: String,
+    pub world_id: String,
+    pub world_visit_id: String,
+    pub met_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriendStats {
+    pub friend_id: String,
+    pub friend_name: String,
+    pub encounter_count: usize,
+    pub last_met: Option<String>,
+    pub top_worlds: Vec<(String, usize)>,
 }

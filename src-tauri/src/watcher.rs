@@ -1,5 +1,5 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 use crate::error::AppResult;
@@ -66,13 +66,13 @@ impl FolderWatcher {
         events
     }
 
-    fn is_vrchat_photo(path: &PathBuf) -> bool {
+    fn is_vrchat_photo(path: &Path) -> bool {
         path.extension()
             .map(|ext| ext == "png" || ext == "jpg" || ext == "jpeg")
             .unwrap_or(false)
     }
 
-    fn is_vrchat_log(path: &PathBuf) -> bool {
+    fn is_vrchat_log(path: &Path) -> bool {
         path.file_name()
             .map(|name| {
                 let name = name.to_string_lossy();
