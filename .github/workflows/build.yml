@@ -73,36 +73,73 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      # Validate the signing key format before passing it to tauri-action.
+      # Validate and sanitize the signing key before passing it to tauri-action.
       # Minisign private keys have two lines:
       #   Line 1: "untrusted comment: ..." header
       #   Line 2: base64-encoded key data (A-Za-z0-9+/= only, no spaces)
-      # If the key is missing or malformed, the build proceeds without signing.
-      - name: Validate updater signing key
+      #
+      # Common failure mode: the GitHub Secret was stored with spaces or extra
+      # whitespace in the base64 body (e.g. copy-paste inserted spaces, or the
+      # header and body were concatenated on one line with a space separator).
+      # This causes: "Invalid symbol 32, offset N" at build time.
+      #
+      # Fix: we SANITIZE the key (strip all whitespace from the base64 body),
+      # then write the cleaned 2-line key to GITHUB_ENV so the build step can
+      # use it without touching the raw secret value.
+      # If the key is missing or unrecoverable, the build proceeds without signing.
+      - name: Validate and sanitize updater signing key
         id: signing
         shell: bash
         run: |
           if [ -z "$SIGNING_KEY" ]; then
             echo "has_key=false" >> "$GITHUB_OUTPUT"
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set. Building without updater signing."
-          elif ! echo "$SIGNING_KEY" | head -1 | grep -q "^untrusted comment:"; then
-            echo "has_key=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY has invalid format (missing 'untrusted comment:' header). Building without updater signing. Please regenerate with: pnpm tauri signer generate"
-          else
-            # Validate that line 2 (base64 key body) contains only valid base64 characters.
-            # Invalid chars (e.g. spaces from copy-paste errors) cause "Invalid symbol" decode failures.
-            KEY_BODY=$(echo "$SIGNING_KEY" | sed -n '2p' | tr -d '\r')
-            if [ -z "$KEY_BODY" ]; then
-              echo "has_key=false" >> "$GITHUB_OUTPUT"
-              echo "::warning::TAURI_SIGNING_PRIVATE_KEY is missing the base64 key data (line 2). Please regenerate with: pnpm tauri signer generate"
-            elif echo "$KEY_BODY" | grep -q '[^A-Za-z0-9+/=]'; then
-              echo "has_key=false" >> "$GITHUB_OUTPUT"
-              echo "::warning::TAURI_SIGNING_PRIVATE_KEY base64 body contains invalid characters (likely spaces from copy-paste). Please re-copy the key ensuring no extra whitespace, or regenerate with: pnpm tauri signer generate"
-            else
-              echo "has_key=true" >> "$GITHUB_OUTPUT"
-              echo "Signing key validated successfully."
-            fi
+            exit 0
           fi
+
+          # Extract header (line 1 only, strip \r for Windows runners)
+          HEADER=$(printf '%s' "$SIGNING_KEY" | head -1 | tr -d '\r')
+
+          if ! printf '%s' "$HEADER" | grep -q "^untrusted comment:"; then
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY has invalid format (missing 'untrusted comment:' header). Regenerate with: pnpm tauri signer generate"
+            exit 0
+          fi
+
+          # Concatenate all lines after the header and strip every whitespace character
+          # (spaces, tabs, \r, \n). This recovers keys stored with:
+          #   - spaces instead of newlines between header and body
+          #   - line-wrapped base64 bodies
+          #   - Windows CRLF line endings
+          BODY=$(printf '%s' "$SIGNING_KEY" | tail -n +2 | tr -d ' \t\r\n')
+
+          if [ -z "$BODY" ]; then
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is missing the base64 key data. Regenerate with: pnpm tauri signer generate"
+            exit 0
+          fi
+
+          # After sanitization, the body must consist solely of valid base64 chars.
+          if ! printf '%s' "$BODY" | grep -qE '^[A-Za-z0-9+/=]+$'; then
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY base64 body contains non-base64 characters even after sanitization. Regenerate with: pnpm tauri signer generate"
+            exit 0
+          fi
+
+          # Mask the base64 body in logs before writing it anywhere.
+          echo "::add-mask::$BODY"
+
+          # Write the clean 2-line key to GITHUB_ENV using the multiline heredoc
+          # syntax so that subsequent steps can access it via env.CLEAN_SIGNING_KEY.
+          DELIM="SIGNING_KEY_EOF_$$"
+          {
+            echo "CLEAN_SIGNING_KEY<<${DELIM}"
+            printf '%s\n%s' "$HEADER" "$BODY"
+            echo "${DELIM}"
+          } >> "$GITHUB_ENV"
+
+          echo "has_key=true" >> "$GITHUB_OUTPUT"
+          echo "Signing key validated and sanitized successfully."
         env:
           SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
@@ -110,14 +147,33 @@ jobs:
       # 1. Building the app with --target
       # 2. Signing updater artifacts (.sig files) when TAURI_SIGNING_PRIVATE_KEY is set
       # 3. Creating/updating the GitHub release with all artifacts + latest.json
+      #
+      # When no valid signing key is present, we disable createUpdaterArtifacts via
+      # --config to prevent Tauri from failing on missing/empty key.
+      - name: Determine extra build args
+        id: build_args
+        shell: bash
+        run: |
+          if [ "$HAS_KEY" = "true" ]; then
+            echo "extra_args=" >> "$GITHUB_OUTPUT"
+          else
+            # No valid signing key: disable updater artifact creation so the build
+            # succeeds without trying to sign .sig files.
+            printf 'extra_args=--config %s\n' '{"bundle":{"createUpdaterArtifacts":false}}' >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          HAS_KEY: ${{ steps.signing.outputs.has_key }}
+
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.has_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          # Use the sanitized key written to GITHUB_ENV (not the raw secret).
+          # This avoids "Invalid symbol 32" errors from spaces in the stored secret.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.has_key == 'true' && env.CLEAN_SIGNING_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.signing.outputs.has_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} ${{ steps.build_args.outputs.extra_args }}
           tauriScript: pnpm tauri
           # Only create release on tag push, not workflow_dispatch
           tagName: ${{ github.ref_name }}
