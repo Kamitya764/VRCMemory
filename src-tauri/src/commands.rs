@@ -7,6 +7,8 @@ use crate::db::DbState;
 use crate::error::{AppError, AppResult};
 use crate::indexer::IndexerState;
 use crate::models::{Album, AppSettings, Avatar, DuplicateGroup, Encounter, ExportData, Friend, FriendStats, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
+use crate::process_manager::ProcessManager;
+use crate::setup::{self, RuntimePaths};
 use crate::sidecar::SidecarState;
 
 #[tauri::command]
@@ -878,4 +880,62 @@ pub async fn get_search_status(
             "meilisearch_available": false,
         })),
     }
+}
+
+// =============================================================================
+// Environment setup & process management commands
+// =============================================================================
+
+/// Check if the AI runtime environment is fully set up
+#[tauri::command]
+pub fn get_setup_status(
+    runtime_paths: State<RuntimePaths>,
+) -> AppResult<setup::SetupStatus> {
+    Ok(setup::check_status(&runtime_paths))
+}
+
+/// Run the full environment setup (download Python, Meilisearch, install packages).
+/// Progress is reported via `setup-progress` events.
+#[tauri::command]
+pub async fn run_environment_setup(
+    app_handle: tauri::AppHandle,
+    runtime_paths: State<'_, RuntimePaths>,
+    process_mgr: State<'_, ProcessManager>,
+) -> AppResult<()> {
+    let paths = runtime_paths.inner().clone();
+
+    setup::run_full_setup(&app_handle, &paths).await?;
+
+    // After setup completes, start the services
+    process_mgr.start_all_if_ready()?;
+
+    Ok(())
+}
+
+/// Start the managed services (Meilisearch + Python sidecar)
+#[tauri::command]
+pub fn start_services(
+    process_mgr: State<ProcessManager>,
+) -> AppResult<()> {
+    process_mgr.start_all_if_ready()
+}
+
+/// Stop all managed services
+#[tauri::command]
+pub fn stop_services(
+    process_mgr: State<ProcessManager>,
+) -> AppResult<()> {
+    process_mgr.stop_all();
+    Ok(())
+}
+
+/// Get the running status of managed services
+#[tauri::command]
+pub fn get_services_status(
+    process_mgr: State<ProcessManager>,
+) -> AppResult<serde_json::Value> {
+    Ok(serde_json::json!({
+        "meilisearch_running": process_mgr.is_meilisearch_running(),
+        "python_sidecar_running": process_mgr.is_python_running(),
+    }))
 }

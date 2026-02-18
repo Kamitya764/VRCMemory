@@ -16,6 +16,9 @@ pub enum AppError {
 
     #[error("Sidecar error: {0}")]
     Sidecar(String),
+
+    #[error("Setup error: {0}")]
+    Setup(String),
 }
 
 impl Serialize for AppError {

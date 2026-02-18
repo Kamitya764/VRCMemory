@@ -27,8 +27,10 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 notify = "8"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 regex = "1"
+zip = "2"
+futures-util = "0.3"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
