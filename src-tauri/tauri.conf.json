@@ -35,7 +35,22 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "Photography",
+    "shortDescription": "VRChat写真管理 & AI検索",
+    "longDescription": "VRChatの思い出をAIで整理し、雑な言葉で見つけ出せるデスクトップアプリ。写真管理、ワールド訪問履歴、フレンド分析を一つに。",
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true,
+        "languages": ["Japanese", "English"],
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    }
   },
   "plugins": {
     "shell": {
