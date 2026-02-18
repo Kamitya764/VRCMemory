@@ -10,6 +10,7 @@ import Settings from "@/components/Settings";
 import StatusBar from "@/components/StatusBar";
 import SetupWizard from "@/components/SetupWizard";
 import ToastContainer from "@/components/ToastContainer";
+import ShortcutHelp from "@/components/ShortcutHelp";
 import { listen } from "@tauri-apps/api/event";
 import { getSettings, getPhotos, updateSettings } from "@/lib/api";
 import type { Photo } from "@/lib/api";
@@ -32,6 +33,7 @@ function App() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
   const [theme, setTheme] = useState<Theme>("dark");
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
 
   const applyTheme = useCallback((t: Theme) => {
     document.documentElement.setAttribute("data-theme", t);
@@ -99,6 +101,7 @@ function App() {
         return;
       }
 
+      if (e.key === "?") setShowShortcutHelp(true);
       if (e.key === "1") setCurrentView("all");
       if (e.key === "2") setCurrentView("recent");
       if (e.key === "3") setCurrentView("albums");
@@ -195,6 +198,7 @@ function App() {
 
       <StatusBar photoCount={photoCount} />
       <ToastContainer />
+      <ShortcutHelp open={showShortcutHelp} onClose={() => setShowShortcutHelp(false)} />
     </div>
   );
 }

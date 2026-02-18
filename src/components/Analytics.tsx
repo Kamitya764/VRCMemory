@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getWorldHistory, getPhotoStats } from "@/lib/api";
+import { getWorldHistory, getWorldHistoryFiltered, getPhotoStats } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 import type { WorldVisit, PhotoStats } from "@/lib/api";
 
 interface Stats {
@@ -15,15 +16,39 @@ function Analytics() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [photoStats, setPhotoStats] = useState<PhotoStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  useEffect(() => {
+  const loadStats = (from?: string, to?: string) => {
+    setLoading(true);
+    const hasFilter = from || to;
+    const worldPromise = hasFilter
+      ? getWorldHistoryFiltered(from || undefined, to || undefined)
+      : getWorldHistory();
+
     Promise.all([
-      getWorldHistory().then((visits) => setStats(computeStats(visits))),
+      worldPromise.then((visits) => setStats(computeStats(visits))),
       getPhotoStats().then(setPhotoStats).catch(() => {}),
     ])
-      .catch(() => {})
+      .catch(() => {
+        showToast("データの取得に失敗しました", "error");
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadStats();
   }, []);
+
+  const handleFilter = () => {
+    loadStats(dateFrom, dateTo);
+  };
+
+  const handleClearFilter = () => {
+    setDateFrom("");
+    setDateTo("");
+    loadStats();
+  };
 
   if (loading) {
     return (
@@ -60,6 +85,39 @@ function Analytics() {
           {stats.totalVisits} 回のワールド訪問 / 合計{" "}
           {formatPlaytime(stats.totalPlaytimeMin)}
         </span>
+      </div>
+
+      {/* Date range filter */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+        <span className="text-sm text-[var(--color-text-muted)]">期間:</span>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm outline-none focus:border-[var(--color-primary)]"
+        />
+        <span className="text-sm text-[var(--color-text-muted)]">〜</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm outline-none focus:border-[var(--color-primary)]"
+        />
+        <button
+          onClick={handleFilter}
+          disabled={!dateFrom && !dateTo}
+          className="rounded bg-[var(--color-primary)] px-3 py-1 text-sm text-white transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+        >
+          適用
+        </button>
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={handleClearFilter}
+            className="rounded px-2 py-1 text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text)]"
+          >
+            クリア
+          </button>
+        )}
       </div>
 
       {/* Photo stats summary */}

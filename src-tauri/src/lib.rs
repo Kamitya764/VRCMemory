@@ -22,6 +22,7 @@ pub struct WatcherState(pub Mutex<Option<FolderWatcher>>);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -97,6 +98,9 @@ pub fn run() {
             commands::update_photo_tags,
             commands::filter_photos,
             commands::get_world_names,
+            commands::get_world_history_filtered,
+            commands::export_data_to_file,
+            commands::import_data_from_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

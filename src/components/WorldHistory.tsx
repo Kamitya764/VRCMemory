@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getWorldHistory, updateWorldRating, updateWorldNotes } from "@/lib/api";
 import type { WorldVisit } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 
 function WorldHistory() {
   const [visits, setVisits] = useState<WorldVisit[]>([]);
@@ -21,7 +22,7 @@ function WorldHistory() {
         prev.map((v) => (v.id === id ? { ...v, rating } : v)),
       );
     } catch {
-      // Error
+      showToast("評価の保存に失敗しました", "error");
     }
   };
 
@@ -33,7 +34,7 @@ function WorldHistory() {
         prev.map((v) => (v.id === id ? { ...v, notes: value } : v)),
       );
     } catch {
-      // Error
+      showToast("メモの保存に失敗しました", "error");
     }
   };
 

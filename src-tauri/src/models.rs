@@ -85,3 +85,28 @@ pub struct IndexingStatus {
     pub processed: usize,
     pub is_running: bool,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportData {
+    pub version: String,
+    pub exported_at: String,
+    pub friends: Vec<Friend>,
+    pub world_visits: Vec<WorldVisit>,
+    pub albums: Vec<AlbumExport>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AlbumExport {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub photo_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImportStats {
+    pub friends_imported: usize,
+    pub world_visits_imported: usize,
+    pub albums_imported: usize,
+}

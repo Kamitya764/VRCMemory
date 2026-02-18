@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use crate::error::AppResult;
-use crate::models::{Album, AppSettings, Friend, Photo, WorldVisit};
+use crate::models::{Album, AlbumExport, AppSettings, ExportData, Friend, ImportStats, Photo, WorldVisit};
 
 pub struct DbState(pub Mutex<Database>);
 
@@ -694,6 +694,155 @@ impl Database {
         Ok(())
     }
 
+    /// Filter world history by date range
+    pub fn get_world_history_filtered(
+        &self,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+    ) -> AppResult<Vec<WorldVisit>> {
+        let mut conditions = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(from) = date_from {
+            conditions.push(format!("entered_at >= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(from.to_string()));
+        }
+        if let Some(to) = date_to {
+            conditions.push(format!("entered_at <= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("{}T23:59:59", to)));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!(
+            "SELECT id, world_name, world_id, entered_at, left_at, players, instance_type, rating, notes
+             FROM world_visits {} ORDER BY entered_at DESC",
+            where_clause
+        );
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let visits = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                let players_str: String = row.get(5)?;
+                let players: Vec<String> =
+                    serde_json::from_str(&players_str).unwrap_or_default();
+                Ok(WorldVisit {
+                    id: row.get(0)?,
+                    world_name: row.get(1)?,
+                    world_id: row.get(2)?,
+                    entered_at: row.get(3)?,
+                    left_at: row.get(4)?,
+                    players,
+                    instance_type: row.get(6)?,
+                    rating: row.get(7)?,
+                    notes: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(visits)
+    }
+
+    /// Export all user data (friends, world visits, albums)
+    pub fn export_all_data(&self) -> AppResult<ExportData> {
+        let friends = self.get_friends()?;
+        let world_visits = self.get_world_history()?;
+        let albums = self.get_albums()?;
+
+        let mut album_exports = Vec::new();
+        for album in &albums {
+            let mut stmt = self.conn.prepare(
+                "SELECT photo_id FROM album_photos WHERE album_id = ?1",
+            )?;
+            let photo_ids: Vec<String> = stmt
+                .query_map(params![album.id], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            album_exports.push(AlbumExport {
+                id: album.id.clone(),
+                name: album.name.clone(),
+                description: album.description.clone(),
+                created_at: album.created_at.clone(),
+                photo_ids,
+            });
+        }
+
+        Ok(ExportData {
+            version: "1.0".to_string(),
+            exported_at: chrono::Utc::now().to_rfc3339(),
+            friends,
+            world_visits,
+            albums: album_exports,
+        })
+    }
+
+    /// Import data from export file
+    pub fn import_data(&self, data: &ExportData) -> AppResult<ImportStats> {
+        let mut friends_imported = 0;
+        for friend in &data.friends {
+            let result = self.conn.execute(
+                "INSERT OR IGNORE INTO friends (id, name, notes, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![friend.id, friend.name, friend.notes, friend.created_at],
+            )?;
+            if result > 0 {
+                friends_imported += 1;
+            }
+        }
+
+        let mut world_visits_imported = 0;
+        for visit in &data.world_visits {
+            let players_json = serde_json::to_string(&visit.players).unwrap_or_default();
+            let result = self.conn.execute(
+                "INSERT OR IGNORE INTO world_visits (id, world_name, world_id, entered_at, left_at, players, instance_type, rating, notes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    visit.id,
+                    visit.world_name,
+                    visit.world_id,
+                    visit.entered_at,
+                    visit.left_at,
+                    players_json,
+                    visit.instance_type,
+                    visit.rating,
+                    visit.notes,
+                ],
+            )?;
+            if result > 0 {
+                world_visits_imported += 1;
+            }
+        }
+
+        let mut albums_imported = 0;
+        for album in &data.albums {
+            let result = self.conn.execute(
+                "INSERT OR IGNORE INTO albums (id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![album.id, album.name, album.description, album.created_at],
+            )?;
+            if result > 0 {
+                albums_imported += 1;
+                for photo_id in &album.photo_ids {
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?1, ?2)",
+                        params![album.id, photo_id],
+                    )?;
+                }
+            }
+        }
+
+        Ok(ImportStats {
+            friends_imported,
+            world_visits_imported,
+            albums_imported,
+        })
+    }
+
     // Photo stats for analytics
     pub fn get_photo_stats(&self) -> AppResult<PhotoStats> {
         let total: usize = self
@@ -1094,5 +1243,140 @@ mod tests {
         // Should be ordered by datetime DESC
         assert_eq!(without[0].id, "p3");
         assert_eq!(without[1].id, "p1");
+    }
+
+    #[test]
+    fn test_world_history_filtered() {
+        let db = test_db();
+        let visits = vec![
+            WorldVisit {
+                id: "w1".to_string(),
+                world_name: "WorldA".to_string(),
+                world_id: "wrld_a".to_string(),
+                entered_at: "2025-06-10T12:00:00Z".to_string(),
+                left_at: None,
+                players: vec![],
+                instance_type: "friends".to_string(),
+                rating: None,
+                notes: None,
+            },
+            WorldVisit {
+                id: "w2".to_string(),
+                world_name: "WorldB".to_string(),
+                world_id: "wrld_b".to_string(),
+                entered_at: "2025-06-15T12:00:00Z".to_string(),
+                left_at: None,
+                players: vec![],
+                instance_type: "public".to_string(),
+                rating: None,
+                notes: None,
+            },
+            WorldVisit {
+                id: "w3".to_string(),
+                world_name: "WorldC".to_string(),
+                world_id: "wrld_c".to_string(),
+                entered_at: "2025-06-20T12:00:00Z".to_string(),
+                left_at: None,
+                players: vec![],
+                instance_type: "friends".to_string(),
+                rating: None,
+                notes: None,
+            },
+        ];
+        for v in &visits {
+            db.insert_world_visit(v).unwrap();
+        }
+
+        // No filter
+        let result = db.get_world_history_filtered(None, None).unwrap();
+        assert_eq!(result.len(), 3);
+
+        // Filter from date
+        let result = db
+            .get_world_history_filtered(Some("2025-06-14"), None)
+            .unwrap();
+        assert_eq!(result.len(), 2);
+
+        // Filter to date
+        let result = db
+            .get_world_history_filtered(None, Some("2025-06-16"))
+            .unwrap();
+        assert_eq!(result.len(), 2);
+
+        // Filter date range
+        let result = db
+            .get_world_history_filtered(Some("2025-06-12"), Some("2025-06-18"))
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, "w2");
+    }
+
+    #[test]
+    fn test_export_import_data() {
+        let db = test_db();
+
+        // Set up data
+        let friend = Friend {
+            id: "f1".to_string(),
+            name: "ExportFriend".to_string(),
+            notes: Some("notes".to_string()),
+            avatars: vec![],
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+        db.insert_friend(&friend).unwrap();
+
+        let visit = WorldVisit {
+            id: "w1".to_string(),
+            world_name: "ExportWorld".to_string(),
+            world_id: "wrld_export".to_string(),
+            entered_at: "2025-06-10T12:00:00Z".to_string(),
+            left_at: None,
+            players: vec!["Player1".to_string()],
+            instance_type: "friends".to_string(),
+            rating: Some(4),
+            notes: None,
+        };
+        db.insert_world_visit(&visit).unwrap();
+
+        let album = Album {
+            id: "a1".to_string(),
+            name: "ExportAlbum".to_string(),
+            description: None,
+            photo_count: 0,
+            cover_photo: None,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+        db.create_album(&album).unwrap();
+
+        // Export
+        let export = db.export_all_data().unwrap();
+        assert_eq!(export.version, "1.0");
+        assert_eq!(export.friends.len(), 1);
+        assert_eq!(export.world_visits.len(), 1);
+        assert_eq!(export.albums.len(), 1);
+        assert_eq!(export.friends[0].name, "ExportFriend");
+        assert_eq!(export.world_visits[0].rating, Some(4));
+
+        // Import into fresh DB
+        let db2 = test_db();
+        let stats = db2.import_data(&export).unwrap();
+        assert_eq!(stats.friends_imported, 1);
+        assert_eq!(stats.world_visits_imported, 1);
+        assert_eq!(stats.albums_imported, 1);
+
+        // Verify imported data
+        let friends = db2.get_friends().unwrap();
+        assert_eq!(friends.len(), 1);
+        assert_eq!(friends[0].name, "ExportFriend");
+
+        let history = db2.get_world_history().unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].rating, Some(4));
+
+        // Re-import should not duplicate (INSERT OR IGNORE)
+        let stats2 = db2.import_data(&export).unwrap();
+        assert_eq!(stats2.friends_imported, 0);
+        assert_eq!(stats2.world_visits_imported, 0);
+        assert_eq!(stats2.albums_imported, 0);
     }
 }

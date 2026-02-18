@@ -8,6 +8,8 @@ import {
 import type { Album, Photo } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { showToast } from "@/lib/toast";
 
 function AlbumView() {
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -17,6 +19,7 @@ function AlbumView() {
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Album | null>(null);
 
   useEffect(() => {
     loadAlbums();
@@ -43,8 +46,9 @@ function AlbumView() {
       setNewDesc("");
       setShowCreate(false);
       await loadAlbums();
+      showToast(`アルバム「${name}」を作成しました`, "success");
     } catch {
-      // Error
+      showToast("アルバムの作成に失敗しました", "error");
     } finally {
       setCreating(false);
     }
@@ -55,8 +59,9 @@ function AlbumView() {
       await deleteAlbum(id);
       if (selectedAlbum?.id === id) setSelectedAlbum(null);
       await loadAlbums();
+      showToast("アルバムを削除しました", "success");
     } catch {
-      // Error
+      showToast("アルバムの削除に失敗しました", "error");
     }
   };
 
@@ -182,7 +187,7 @@ function AlbumView() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleDelete(album.id);
+                  setDeleteTarget(album);
                 }}
                 className="absolute right-2 top-2 rounded bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
                 title="削除"
@@ -195,6 +200,19 @@ function AlbumView() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="アルバムを削除"
+        message={`アルバム「${deleteTarget?.name || ""}」を削除しますか？`}
+        confirmLabel="削除"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget) handleDelete(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

@@ -7,6 +7,8 @@ import {
   updateFriendName,
 } from "@/lib/api";
 import type { Friend } from "@/lib/api";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { showToast } from "@/lib/toast";
 
 function FriendManager() {
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -15,6 +17,7 @@ function FriendManager() {
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Friend | null>(null);
 
   useEffect(() => {
     loadFriends();
@@ -41,8 +44,9 @@ function FriendManager() {
       setNewName("");
       setShowAddForm(false);
       await loadFriends();
+      showToast(`「${name}」を追加しました`, "success");
     } catch {
-      // Error handling
+      showToast("フレンドの追加に失敗しました", "error");
     } finally {
       setAdding(false);
     }
@@ -64,7 +68,7 @@ function FriendManager() {
         prev.map((f) => (f.id === id ? { ...f, notes: value } : f)),
       );
     } catch {
-      // Error
+      showToast("メモの保存に失敗しました", "error");
     }
   };
 
@@ -77,7 +81,17 @@ function FriendManager() {
         prev.map((f) => (f.id === id ? { ...f, name: trimmed } : f)),
       );
     } catch {
-      // Error
+      showToast("名前の変更に失敗しました", "error");
+    }
+  };
+
+  const handleDeleteFriend = async (friend: Friend) => {
+    try {
+      await deleteFriend(friend.id);
+      await loadFriends();
+      showToast(`「${friend.name}」を削除しました`, "success");
+    } catch {
+      showToast("フレンドの削除に失敗しました", "error");
     }
   };
 
@@ -176,14 +190,9 @@ function FriendManager() {
                 </span>
 
                 <button
-                  onClick={async (e) => {
+                  onClick={(e) => {
                     e.stopPropagation();
-                    try {
-                      await deleteFriend(friend.id);
-                      await loadFriends();
-                    } catch {
-                      // Error
-                    }
+                    setDeleteTarget(friend);
                   }}
                   className="rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 [.group:hover>&]:opacity-100"
                   title="削除"
@@ -235,6 +244,19 @@ function FriendManager() {
       <p className="text-xs text-[var(--color-text-muted)]">
         {friends.length} 人のフレンド
       </p>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="フレンドを削除"
+        message={`「${deleteTarget?.name || ""}」を削除しますか？`}
+        confirmLabel="削除"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget) handleDeleteFriend(deleteTarget);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

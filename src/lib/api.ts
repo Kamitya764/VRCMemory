@@ -272,3 +272,29 @@ export async function filterPhotos(
 export async function getWorldNames(): Promise<string[]> {
   return invoke("get_world_names");
 }
+
+// Filtered world history for analytics
+export async function getWorldHistoryFiltered(
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<WorldVisit[]> {
+  return invoke("get_world_history_filtered", {
+    dateFrom: dateFrom ?? null,
+    dateTo: dateTo ?? null,
+  });
+}
+
+// Data export/import
+export interface ImportStats {
+  friends_imported: number;
+  world_visits_imported: number;
+  albums_imported: number;
+}
+
+export async function exportDataToFile(path: string): Promise<void> {
+  return invoke("export_data_to_file", { path });
+}
+
+export async function importDataFromFile(path: string): Promise<ImportStats> {
+  return invoke("import_data_from_file", { path });
+}

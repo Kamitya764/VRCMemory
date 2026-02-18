@@ -5,6 +5,8 @@ import { searchPhotos, getPhotos, deletePhotos, getAlbums, addPhotosToAlbum, fil
 import type { Album } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { showToast } from "@/lib/toast";
 
 const PAGE_SIZE = 60;
 
@@ -28,6 +30,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [filterWorld, setFilterWorld] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -183,23 +186,25 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
     try {
-      await deletePhotos([...selectedIds]);
+      const count = await deletePhotos([...selectedIds]);
       setDisplayPhotos((prev) => prev.filter((p) => !selectedIds.has(p.id)));
       clearSelection();
       onRefresh();
+      showToast(`${count}枚の写真を削除しました`, "success");
     } catch {
-      // Error
+      showToast("写真の削除に失敗しました", "error");
     }
   };
 
   const handleAddToAlbum = async (albumId: string) => {
     if (selectedIds.size === 0) return;
     try {
-      await addPhotosToAlbum(albumId, [...selectedIds]);
+      const added = await addPhotosToAlbum(albumId, [...selectedIds]);
       setShowAlbumPicker(false);
       clearSelection();
+      showToast(`${added}枚をアルバムに追加しました`, "success");
     } catch {
-      // Error
+      showToast("アルバムへの追加に失敗しました", "error");
     }
   };
 
@@ -316,7 +321,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
                     )}
                   </div>
                   <button
-                    onClick={handleDeleteSelected}
+                    onClick={() => setShowDeleteConfirm(true)}
                     className="rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
                   >
                     削除
@@ -508,6 +513,19 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
         photoIds={visiblePhotos.map((p) => p.id)}
         onClose={() => setSelectedPhotoId(null)}
         onNavigate={setSelectedPhotoId}
+      />
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="写真を削除"
+        message={`${selectedIds.size}枚の写真を削除しますか？この操作は取り消せません。`}
+        confirmLabel="削除"
+        variant="danger"
+        onConfirm={() => {
+          setShowDeleteConfirm(false);
+          handleDeleteSelected();
+        }}
+        onCancel={() => setShowDeleteConfirm(false)}
       />
     </div>
   );

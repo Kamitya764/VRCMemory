@@ -8,7 +8,10 @@ import {
   getSidecarStatus,
   generateCaptions,
   generateThumbnails,
+  exportDataToFile,
+  importDataFromFile,
 } from "@/lib/api";
+import { showToast } from "@/lib/toast";
 import type { AppSettings, SidecarStatus } from "@/lib/api";
 
 function Settings() {
@@ -52,8 +55,9 @@ function Settings() {
         prev ? { ...prev, photo_folder: photoFolder, log_folder: logFolder } : prev,
       );
       await startWatcher().catch(() => {});
+      showToast("設定を保存しました", "success");
     } catch {
-      // Error
+      showToast("設定の保存に失敗しました", "error");
     } finally {
       setSaving(false);
     }
@@ -72,6 +76,7 @@ function Settings() {
             clearInterval(poll);
             setIndexing(false);
             setIndexStatus(`完了: ${status.processed} 件を処理しました`);
+            showToast(`${status.processed} 件を処理しました`, "success");
           }
         } catch {
           clearInterval(poll);
@@ -81,6 +86,7 @@ function Settings() {
     } catch {
       setIndexing(false);
       setIndexStatus("エラーが発生しました");
+      showToast("インデックスの開始に失敗しました", "error");
     }
   };
 
@@ -276,6 +282,68 @@ function Settings() {
               {thumbStatus}
             </span>
           )}
+        </div>
+      </section>
+
+      {/* Data management */}
+      <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+        <h3 className="font-medium">データ管理</h3>
+        <p className="text-sm text-[var(--color-text-muted)]">
+          フレンド、ワールド訪問履歴、アルバムのデータをJSON形式でエクスポート・インポートできます。
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={async () => {
+              try {
+                const { save } = await import("@tauri-apps/plugin-dialog");
+                const path = await save({
+                  defaultPath: "vrcmemory-export.json",
+                  filters: [{ name: "JSON", extensions: ["json"] }],
+                });
+                if (path) {
+                  await exportDataToFile(path);
+                  showToast("データをエクスポートしました", "success");
+                }
+              } catch {
+                showToast("エクスポートに失敗しました", "error");
+              }
+            }}
+            className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)]"
+          >
+            エクスポート
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const { open } = await import("@tauri-apps/plugin-dialog");
+                const path = await open({
+                  multiple: false,
+                  filters: [{ name: "JSON", extensions: ["json"] }],
+                });
+                if (path) {
+                  const stats = await importDataFromFile(path as string);
+                  const parts = [];
+                  if (stats.friends_imported > 0)
+                    parts.push(`フレンド ${stats.friends_imported}人`);
+                  if (stats.world_visits_imported > 0)
+                    parts.push(`ワールド訪問 ${stats.world_visits_imported}件`);
+                  if (stats.albums_imported > 0)
+                    parts.push(`アルバム ${stats.albums_imported}件`);
+                  showToast(
+                    parts.length > 0
+                      ? `${parts.join("、")}をインポートしました`
+                      : "新しいデータはありませんでした",
+                    parts.length > 0 ? "success" : "info",
+                  );
+                }
+              } catch {
+                showToast("インポートに失敗しました", "error");
+              }
+            }}
+            className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)]"
+          >
+            インポート
+          </button>
         </div>
       </section>
 

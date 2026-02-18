@@ -6,7 +6,7 @@ use tauri::{Manager, State};
 use crate::db::DbState;
 use crate::error::{AppError, AppResult};
 use crate::indexer::IndexerState;
-use crate::models::{Album, AppSettings, Friend, IndexingStatus, Photo, SearchResult, WorldVisit};
+use crate::models::{Album, AppSettings, ExportData, Friend, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
 use crate::sidecar::SidecarState;
 
 #[tauri::command]
@@ -516,4 +516,44 @@ pub fn filter_photos(
 pub fn get_world_names(db: State<DbState>) -> AppResult<Vec<String>> {
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     db.get_world_names()
+}
+
+/// Get world history filtered by date range
+#[tauri::command]
+pub fn get_world_history_filtered(
+    date_from: Option<String>,
+    date_to: Option<String>,
+    db: State<DbState>,
+) -> AppResult<Vec<WorldVisit>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.get_world_history_filtered(date_from.as_deref(), date_to.as_deref())
+}
+
+/// Export all user data to a JSON file
+#[tauri::command]
+pub fn export_data_to_file(
+    path: String,
+    db: State<DbState>,
+) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let data = db.export_all_data()?;
+    let json = serde_json::to_string_pretty(&data)
+        .map_err(|e| AppError::Parse(e.to_string()))?;
+    std::fs::write(&path, json)
+        .map_err(|e| AppError::Parse(format!("Failed to write file: {}", e)))?;
+    Ok(())
+}
+
+/// Import user data from a JSON file
+#[tauri::command]
+pub fn import_data_from_file(
+    path: String,
+    db: State<DbState>,
+) -> AppResult<ImportStats> {
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| AppError::Parse(format!("Failed to read file: {}", e)))?;
+    let data: ExportData = serde_json::from_str(&json)
+        .map_err(|e| AppError::Parse(format!("Invalid data format: {}", e)))?;
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.import_data(&data)
 }
