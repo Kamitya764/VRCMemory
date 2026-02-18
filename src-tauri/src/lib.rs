@@ -101,6 +101,10 @@ pub fn run() {
             commands::get_world_history_filtered,
             commands::export_data_to_file,
             commands::import_data_from_file,
+            commands::ai_search,
+            commands::index_photos_vectors,
+            commands::index_photos_text,
+            commands::get_search_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

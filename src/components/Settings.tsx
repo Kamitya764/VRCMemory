@@ -10,9 +10,12 @@ import {
   generateThumbnails,
   exportDataToFile,
   importDataFromFile,
+  indexPhotosVectors,
+  indexPhotosText,
+  getSearchStatus,
 } from "@/lib/api";
 import { showToast } from "@/lib/toast";
-import type { AppSettings, SidecarStatus } from "@/lib/api";
+import type { AppSettings, SidecarStatus, SearchIndexStatus } from "@/lib/api";
 
 function Settings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -27,6 +30,11 @@ function Settings() {
   const [captionStatus, setCaptionStatus] = useState("");
   const [generatingThumbs, setGeneratingThumbs] = useState(false);
   const [thumbStatus, setThumbStatus] = useState("");
+  const [searchIndex, setSearchIndex] = useState<SearchIndexStatus | null>(null);
+  const [vectorIndexing, setVectorIndexing] = useState(false);
+  const [vectorIndexStatus, setVectorIndexStatus] = useState("");
+  const [textIndexing, setTextIndexing] = useState(false);
+  const [textIndexStatus, setTextIndexStatus] = useState("");
 
   useEffect(() => {
     getSettings()
@@ -40,7 +48,12 @@ function Settings() {
 
     // Check sidecar status
     getSidecarStatus()
-      .then(setSidecar)
+      .then((s) => {
+        setSidecar(s);
+        if (s.available) {
+          getSearchStatus().then(setSearchIndex).catch(() => {});
+        }
+      })
       .catch(() => setSidecar({ available: false, gpu_available: false }));
   }, []);
 
@@ -251,6 +264,76 @@ function Settings() {
           )}
         </div>
       </section>
+
+      {/* AI Search Index */}
+      {sidecar?.available && (
+        <section className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium">AI検索インデックス</h3>
+            {searchIndex && (
+              <div className="flex items-center gap-3 text-xs text-[var(--color-text-muted)]">
+                <span>ベクトル: {searchIndex.total_vectors}</span>
+                <span>テキスト: {searchIndex.total_documents}</span>
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${
+                    searchIndex.meilisearch_available ? "bg-green-400" : "bg-yellow-400"
+                  }`}
+                />
+              </div>
+            )}
+          </div>
+          <p className="text-sm text-[var(--color-text-muted)]">
+            写真のCLIPベクトルとメタデータをインデックスし、AIハイブリッド検索を有効にします。
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={async () => {
+                setVectorIndexing(true);
+                setVectorIndexStatus("ベクトルインデックス中...");
+                try {
+                  const result = await indexPhotosVectors(50);
+                  setVectorIndexStatus(
+                    `${result.indexed} 枚をインデックス (${result.skipped} スキップ)`,
+                  );
+                  getSearchStatus().then(setSearchIndex).catch(() => {});
+                } catch {
+                  setVectorIndexStatus("エラー: ベクトルインデックスに失敗");
+                } finally {
+                  setVectorIndexing(false);
+                }
+              }}
+              disabled={vectorIndexing}
+              className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+            >
+              {vectorIndexing ? "処理中..." : "ベクトルインデックス"}
+            </button>
+            <button
+              onClick={async () => {
+                setTextIndexing(true);
+                setTextIndexStatus("テキストインデックス中...");
+                try {
+                  const result = await indexPhotosText(100);
+                  setTextIndexStatus(`${result.indexed} 件をインデックス`);
+                  getSearchStatus().then(setSearchIndex).catch(() => {});
+                } catch {
+                  setTextIndexStatus("エラー: テキストインデックスに失敗");
+                } finally {
+                  setTextIndexing(false);
+                }
+              }}
+              disabled={textIndexing}
+              className="rounded-lg border border-[var(--color-border)] px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+            >
+              {textIndexing ? "処理中..." : "テキストインデックス"}
+            </button>
+            {(vectorIndexStatus || textIndexStatus) && (
+              <span className="text-sm text-[var(--color-text-muted)]">
+                {vectorIndexStatus || textIndexStatus}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Thumbnail generation */}
       <section className="space-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">

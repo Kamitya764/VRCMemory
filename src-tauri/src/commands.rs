@@ -557,3 +557,133 @@ pub fn import_data_from_file(
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     db.import_data(&data)
 }
+
+// --- AI Search commands (Phase 2) ---
+
+/// AI-powered hybrid search: vector similarity + text search
+#[tauri::command]
+pub async fn ai_search(
+    query: String,
+    limit: Option<u32>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<SearchResult> {
+    let search_limit = limit.unwrap_or(20);
+
+    let sidecar_result = sidecar
+        .hybrid_search(&query, search_limit, 0.5, 0.5)
+        .await?;
+
+    // Look up full Photo objects from DB by the returned photo IDs
+    let photo_ids: Vec<String> = sidecar_result
+        .results
+        .iter()
+        .map(|r| r.photo_id.clone())
+        .collect();
+
+    let db = db
+        .0
+        .lock()
+        .map_err(|e| AppError::Parse(e.to_string()))?;
+
+    let mut photos = Vec::new();
+    for id in &photo_ids {
+        if let Ok(Some(photo)) = db.get_photo_by_id(id) {
+            photos.push(photo);
+        }
+    }
+
+    let total = photos.len();
+    Ok(SearchResult { photos, total })
+}
+
+/// Index photos in the vector store (LanceDB) for AI search
+#[tauri::command]
+pub async fn index_photos_vectors(
+    batch_size: Option<i64>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<serde_json::Value> {
+    let limit = batch_size.unwrap_or(50);
+
+    let photos = {
+        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        let (all_photos, _) = db.get_photos(0, limit)?;
+        all_photos
+    };
+
+    if photos.is_empty() {
+        return Ok(serde_json::json!({"indexed": 0, "skipped": 0}));
+    }
+
+    let items: Vec<crate::sidecar::VectorIndexItem> = photos
+        .iter()
+        .map(|p| crate::sidecar::VectorIndexItem {
+            photo_id: p.id.clone(),
+            image_path: p.filepath.clone(),
+        })
+        .collect();
+
+    let result = sidecar.index_vectors_batch(&items).await?;
+
+    Ok(serde_json::json!({
+        "indexed": result.indexed,
+        "skipped": result.skipped,
+    }))
+}
+
+/// Index photo metadata in Meilisearch for text search
+#[tauri::command]
+pub async fn index_photos_text(
+    batch_size: Option<i64>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<serde_json::Value> {
+    let limit = batch_size.unwrap_or(100);
+
+    let photos = {
+        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        let (all_photos, _) = db.get_photos(0, limit)?;
+        all_photos
+    };
+
+    if photos.is_empty() {
+        return Ok(serde_json::json!({"indexed": 0}));
+    }
+
+    let docs: Vec<crate::sidecar::TextIndexDocument> = photos
+        .iter()
+        .map(|p| crate::sidecar::TextIndexDocument {
+            id: p.id.clone(),
+            caption: p.caption.clone(),
+            tags: p.tags.clone(),
+            world_name: p.world_name.clone(),
+            filename: Some(p.filename.clone()),
+        })
+        .collect();
+
+    let result = sidecar.index_text_batch(&docs).await?;
+
+    Ok(serde_json::json!({
+        "indexed": result.indexed,
+    }))
+}
+
+/// Get AI search index status
+#[tauri::command]
+pub async fn get_search_status(
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<serde_json::Value> {
+    match sidecar.search_status().await {
+        Ok(status) => Ok(serde_json::json!({
+            "total_vectors": status.total_vectors,
+            "total_documents": status.total_documents,
+            "meilisearch_available": status.meilisearch_available,
+        })),
+        Err(_) => Ok(serde_json::json!({
+            "total_vectors": 0,
+            "total_documents": 0,
+            "meilisearch_available": false,
+        })),
+    }
+}

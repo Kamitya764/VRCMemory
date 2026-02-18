@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { View } from "@/App";
 import type { Photo } from "@/lib/api";
-import { searchPhotos, getPhotos, deletePhotos, getAlbums, addPhotosToAlbum, filterPhotos, getWorldNames } from "@/lib/api";
+import { searchPhotos, getPhotos, deletePhotos, getAlbums, addPhotosToAlbum, filterPhotos, getWorldNames, aiSearch } from "@/lib/api";
 import type { Album } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
@@ -70,13 +70,32 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
       }, 300);
     } else if (searchQuery.trim()) {
       debounceRef.current = setTimeout(() => {
-        searchPhotos(searchQuery)
+        // Try AI hybrid search first, fallback to SQLite search
+        aiSearch(searchQuery)
           .then((result) => {
-            setDisplayPhotos(result.photos);
-            setVisibleCount(PAGE_SIZE);
-            setHasMore(result.photos.length > PAGE_SIZE);
+            if (result.photos.length > 0) {
+              setDisplayPhotos(result.photos);
+              setVisibleCount(PAGE_SIZE);
+              setHasMore(result.photos.length > PAGE_SIZE);
+            } else {
+              // AI search returned nothing, try SQLite
+              return searchPhotos(searchQuery).then((sqlResult) => {
+                setDisplayPhotos(sqlResult.photos);
+                setVisibleCount(PAGE_SIZE);
+                setHasMore(sqlResult.photos.length > PAGE_SIZE);
+              });
+            }
           })
-          .catch(() => setDisplayPhotos(photos));
+          .catch(() => {
+            // AI search unavailable, fallback to SQLite
+            searchPhotos(searchQuery)
+              .then((result) => {
+                setDisplayPhotos(result.photos);
+                setVisibleCount(PAGE_SIZE);
+                setHasMore(result.photos.length > PAGE_SIZE);
+              })
+              .catch(() => setDisplayPhotos(photos));
+          });
       }, 300);
     } else {
       setDisplayPhotos(photos);

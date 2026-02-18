@@ -298,3 +298,34 @@ export async function exportDataToFile(path: string): Promise<void> {
 export async function importDataFromFile(path: string): Promise<ImportStats> {
   return invoke("import_data_from_file", { path });
 }
+
+// AI Search commands (Phase 2)
+
+export async function aiSearch(
+  query: string,
+  limit?: number,
+): Promise<SearchResult> {
+  return invoke("ai_search", { query, limit: limit ?? null });
+}
+
+export async function indexPhotosVectors(
+  batchSize?: number,
+): Promise<{ indexed: number; skipped: number }> {
+  return invoke("index_photos_vectors", { batchSize: batchSize ?? null });
+}
+
+export async function indexPhotosText(
+  batchSize?: number,
+): Promise<{ indexed: number }> {
+  return invoke("index_photos_text", { batchSize: batchSize ?? null });
+}
+
+export interface SearchIndexStatus {
+  total_vectors: number;
+  total_documents: number;
+  meilisearch_available: boolean;
+}
+
+export async function getSearchStatus(): Promise<SearchIndexStatus> {
+  return invoke("get_search_status");
+}

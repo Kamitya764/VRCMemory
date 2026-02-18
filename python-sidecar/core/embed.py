@@ -100,3 +100,27 @@ class EmbeddingEngine:
             image_features = torch.nn.functional.normalize(image_features, p=2, dim=1)
 
         return image_features[0].cpu().tolist()
+
+    def embed_text_clip(self, text: str) -> list[float]:
+        """Generate text embedding using Japanese CLIP (same space as images).
+
+        This produces a 512-dim vector in the same embedding space as
+        embed_image(), enabling cross-modal text-to-image search.
+
+        Args:
+            text: Query text string
+
+        Returns:
+            Embedding vector (512 dimensions)
+        """
+        self._load_image_model()
+
+        inputs = self._image_processor(text=[text], return_tensors="pt", padding=True).to(
+            self.device
+        )
+
+        with torch.no_grad():
+            text_features = self._image_model.get_text_features(**inputs)
+            text_features = torch.nn.functional.normalize(text_features, p=2, dim=1)
+
+        return text_features[0].cpu().tolist()
