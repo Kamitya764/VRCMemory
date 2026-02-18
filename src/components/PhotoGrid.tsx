@@ -182,7 +182,9 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
 
       <PhotoDetail
         photoId={selectedPhotoId}
+        photoIds={visiblePhotos.map((p) => p.id)}
         onClose={() => setSelectedPhotoId(null)}
+        onNavigate={setSelectedPhotoId}
       />
     </div>
   );

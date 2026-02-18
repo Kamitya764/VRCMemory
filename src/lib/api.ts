@@ -117,3 +117,8 @@ export async function scanPhotos(folder: string): Promise<number> {
 export async function parseLogs(logFolder: string): Promise<number> {
   return invoke("parse_logs", { logFolder });
 }
+
+// Watcher commands
+export async function startWatcher(): Promise<void> {
+  return invoke("start_watcher");
+}

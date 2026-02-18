@@ -8,6 +8,7 @@ import Analytics from "@/components/Analytics";
 import Settings from "@/components/Settings";
 import StatusBar from "@/components/StatusBar";
 import SetupWizard from "@/components/SetupWizard";
+import { listen } from "@tauri-apps/api/event";
 import { getSettings, getPhotos } from "@/lib/api";
 import type { Photo } from "@/lib/api";
 
@@ -56,6 +57,19 @@ function App() {
       loadPhotos();
     }
   }, [needsSetup, loadPhotos]);
+
+  // Listen for watcher events to auto-refresh
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<number>("photos-updated", () => {
+      loadPhotos();
+    }).then((fn) => {
+      unlisten = fn;
+    }).catch(() => {
+      // Not running in Tauri
+    });
+    return () => unlisten?.();
+  }, [loadPhotos]);
 
   if (needsSetup === null) {
     return (

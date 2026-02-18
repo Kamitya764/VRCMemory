@@ -242,3 +242,10 @@ pub fn select_folder() -> AppResult<Option<String>> {
     // This is a placeholder - actual dialog uses @tauri-apps/plugin-dialog
     Ok(None)
 }
+
+/// Restart the folder watcher with current settings
+#[tauri::command]
+pub fn start_watcher(app_handle: tauri::AppHandle) -> AppResult<()> {
+    crate::start_watcher_from_settings(&app_handle);
+    Ok(())
+}

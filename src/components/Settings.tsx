@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getSettings, updateSettings, startIndexing, getIndexingStatus } from "@/lib/api";
+import { getSettings, updateSettings, startIndexing, getIndexingStatus, startWatcher } from "@/lib/api";
 import type { AppSettings } from "@/lib/api";
 
 function Settings() {
@@ -32,6 +32,8 @@ function Settings() {
       setSettings((prev) =>
         prev ? { ...prev, photo_folder: photoFolder, log_folder: logFolder } : prev,
       );
+      // Restart watcher with new folders
+      await startWatcher().catch(() => {});
     } catch {
       // Error
     } finally {

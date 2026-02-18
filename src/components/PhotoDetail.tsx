@@ -1,17 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getPhotoDetail } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import type { Photo } from "@/lib/api";
 
 interface PhotoDetailProps {
   photoId: string | null;
+  photoIds?: string[];
   onClose: () => void;
+  onNavigate?: (id: string) => void;
 }
 
-function PhotoDetail({ photoId, onClose }: PhotoDetailProps) {
+function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProps) {
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [loading, setLoading] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!photoId) {
@@ -27,24 +30,91 @@ function PhotoDetail({ photoId, onClose }: PhotoDetailProps) {
       .finally(() => setLoading(false));
   }, [photoId]);
 
+  // Focus dialog on open
+  useEffect(() => {
+    if (photoId && dialogRef.current) {
+      dialogRef.current.focus();
+    }
+  }, [photoId]);
+
+  const currentIndex = photoId && photoIds ? photoIds.indexOf(photoId) : -1;
+  const hasPrev = currentIndex > 0;
+  const hasNext = photoIds ? currentIndex < photoIds.length - 1 : false;
+
+  const goToPrev = useCallback(() => {
+    if (hasPrev && photoIds && onNavigate) {
+      onNavigate(photoIds[currentIndex - 1]);
+    }
+  }, [hasPrev, photoIds, currentIndex, onNavigate]);
+
+  const goToNext = useCallback(() => {
+    if (hasNext && photoIds && onNavigate) {
+      onNavigate(photoIds[currentIndex + 1]);
+    }
+  }, [hasNext, photoIds, currentIndex, onNavigate]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      switch (e.key) {
+        case "Escape":
+          onClose();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          goToPrev();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          goToNext();
+          break;
+      }
+    },
+    [onClose, goToPrev, goToNext],
+  );
+
   if (!photoId) return null;
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-  };
-
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
       onClick={handleBackdropClick}
       onKeyDown={handleKeyDown}
       role="dialog"
       tabIndex={-1}
     >
+      {/* Prev/Next arrow buttons */}
+      {hasPrev && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            goToPrev();
+          }}
+          className="absolute left-4 z-10 rounded-full bg-black/50 p-2 text-white/70 transition-colors hover:bg-black/70 hover:text-white"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+      {hasNext && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            goToNext();
+          }}
+          className="absolute right-4 z-10 rounded-full bg-black/50 p-2 text-white/70 transition-colors hover:bg-black/70 hover:text-white"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M9 6L15 12L9 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+
       <div className="relative flex max-h-[90vh] max-w-[90vw] overflow-hidden rounded-lg bg-[var(--color-surface)]">
         {/* Close button */}
         <button
@@ -129,6 +199,13 @@ function PhotoDetail({ photoId, onClose }: PhotoDetailProps) {
                     {photo.filepath}
                   </p>
                 </div>
+
+                {/* Navigation hint */}
+                {photoIds && photoIds.length > 1 && (
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    ← → キーで前後の写真に移動
+                  </p>
+                )}
               </div>
             </div>
           </>
