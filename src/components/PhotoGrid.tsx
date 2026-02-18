@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { View } from "@/App";
 import type { Photo } from "@/lib/api";
 import { searchPhotos } from "@/lib/api";
+import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
 
 interface PhotoGridProps {
@@ -94,8 +95,17 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
             onClick={() => setSelectedPhotoId(photo.id)}
             className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-all hover:border-[var(--color-primary)]"
           >
-            {/* Thumbnail or placeholder */}
-            <div className="flex h-full w-full items-center justify-center bg-[var(--color-bg)] text-3xl">
+            <img
+              src={toAssetUrl(photo.filepath)}
+              alt={photo.filename}
+              className="h-full w-full object-cover"
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+                e.currentTarget.nextElementSibling?.classList.remove("hidden");
+              }}
+            />
+            <div className="hidden h-full w-full items-center justify-center bg-[var(--color-bg)] text-3xl">
               📷
             </div>
 

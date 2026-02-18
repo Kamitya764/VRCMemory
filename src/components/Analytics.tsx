@@ -1,51 +1,271 @@
+import { useState, useEffect } from "react";
+import { getWorldHistory } from "@/lib/api";
+import type { WorldVisit } from "@/lib/api";
+
+interface Stats {
+  totalVisits: number;
+  totalPlaytimeMin: number;
+  topWorlds: { name: string; count: number }[];
+  topFriends: { name: string; count: number }[];
+  hourlyActivity: number[];
+  instanceTypes: { type: string; count: number }[];
+}
+
 function Analytics() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getWorldHistory()
+      .then((visits) => setStats(computeStats(visits)))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-[var(--color-text-muted)]">
+        読み込み中...
+      </div>
+    );
+  }
+
+  if (!stats || stats.totalVisits === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold">プレイスタイル分析</h2>
+        <div className="grid grid-cols-2 gap-4">
+          <EmptyCard title="活動時間帯" />
+          <EmptyCard title="ワールドランキング" />
+          <EmptyCard title="よく会うフレンド" />
+          <EmptyCard title="インスタンスタイプ" />
+        </div>
+      </div>
+    );
+  }
+
+  const maxHourly = Math.max(...stats.hourlyActivity, 1);
+
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold">プレイスタイル分析</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">プレイスタイル分析</h2>
+        <span className="text-sm text-[var(--color-text-muted)]">
+          {stats.totalVisits} 回のワールド訪問 / 合計{" "}
+          {formatPlaytime(stats.totalPlaytimeMin)}
+        </span>
+      </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        {/* Activity heatmap placeholder */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Hourly activity */}
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <h3 className="mb-2 text-sm font-medium text-[var(--color-text-muted)]">
+          <h3 className="mb-3 text-sm font-medium text-[var(--color-text-muted)]">
             活動時間帯
           </h3>
-          <div className="flex h-32 items-center justify-center text-[var(--color-text-muted)]">
-            データなし
+          <div className="flex h-28 items-end gap-0.5">
+            {stats.hourlyActivity.map((count, hour) => (
+              <div key={hour} className="group relative flex flex-1 flex-col items-center">
+                <div
+                  className="w-full rounded-t bg-[var(--color-primary)] transition-colors group-hover:bg-[var(--color-primary-hover)]"
+                  style={{
+                    height: `${(count / maxHourly) * 100}%`,
+                    minHeight: count > 0 ? "2px" : "0",
+                  }}
+                />
+                {hour % 6 === 0 && (
+                  <span className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                    {hour}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* World genre breakdown placeholder */}
+        {/* Top worlds */}
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <h3 className="mb-2 text-sm font-medium text-[var(--color-text-muted)]">
-            ワールドジャンル
+          <h3 className="mb-3 text-sm font-medium text-[var(--color-text-muted)]">
+            よく訪れるワールド
           </h3>
-          <div className="flex h-32 items-center justify-center text-[var(--color-text-muted)]">
-            データなし
-          </div>
+          {stats.topWorlds.length > 0 ? (
+            <div className="space-y-2">
+              {stats.topWorlds.map((w, i) => (
+                <div key={w.name} className="flex items-center gap-2 text-sm">
+                  <span className="w-5 shrink-0 text-right text-xs text-[var(--color-text-muted)]">
+                    {i + 1}.
+                  </span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate">{w.name || "不明"}</span>
+                      <span className="ml-2 shrink-0 text-xs text-[var(--color-text-muted)]">
+                        {w.count}回
+                      </span>
+                    </div>
+                    <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-[var(--color-bg)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--color-primary)]"
+                        style={{
+                          width: `${(w.count / (stats.topWorlds[0]?.count || 1)) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--color-text-muted)]">データなし</p>
+          )}
         </div>
 
-        {/* Frequent friends placeholder */}
+        {/* Top friends */}
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <h3 className="mb-2 text-sm font-medium text-[var(--color-text-muted)]">
-            よく会うフレンド
+          <h3 className="mb-3 text-sm font-medium text-[var(--color-text-muted)]">
+            よく会うプレイヤー
           </h3>
-          <div className="flex h-32 items-center justify-center text-[var(--color-text-muted)]">
-            データなし
-          </div>
+          {stats.topFriends.length > 0 ? (
+            <div className="space-y-2">
+              {stats.topFriends.map((f, i) => (
+                <div key={f.name} className="flex items-center gap-2 text-sm">
+                  <span className="w-5 shrink-0 text-right text-xs text-[var(--color-text-muted)]">
+                    {i + 1}.
+                  </span>
+                  <div className="flex flex-1 items-center justify-between">
+                    <span className="truncate">{f.name}</span>
+                    <span className="ml-2 shrink-0 text-xs text-[var(--color-text-muted)]">
+                      {f.count}回
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--color-text-muted)]">データなし</p>
+          )}
         </div>
 
-        {/* Playtime chart placeholder */}
+        {/* Instance types */}
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <h3 className="mb-2 text-sm font-medium text-[var(--color-text-muted)]">
-            月間プレイ時間
+          <h3 className="mb-3 text-sm font-medium text-[var(--color-text-muted)]">
+            インスタンスタイプ
           </h3>
-          <div className="flex h-32 items-center justify-center text-[var(--color-text-muted)]">
-            データなし
-          </div>
+          {stats.instanceTypes.length > 0 ? (
+            <div className="space-y-2">
+              {stats.instanceTypes.map((it) => (
+                <div key={it.type} className="flex items-center justify-between text-sm">
+                  <span>{it.type}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-24 overflow-hidden rounded-full bg-[var(--color-bg)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--color-primary)]"
+                        style={{
+                          width: `${(it.count / stats.totalVisits) * 100}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="w-12 text-right text-xs text-[var(--color-text-muted)]">
+                      {Math.round((it.count / stats.totalVisits) * 100)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-[var(--color-text-muted)]">データなし</p>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+function EmptyCard({ title }: { title: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+      <h3 className="mb-2 text-sm font-medium text-[var(--color-text-muted)]">
+        {title}
+      </h3>
+      <div className="flex h-32 items-center justify-center text-[var(--color-text-muted)]">
+        データなし
+      </div>
+    </div>
+  );
+}
+
+function computeStats(visits: WorldVisit[]): Stats {
+  const worldCounts = new Map<string, number>();
+  const friendCounts = new Map<string, number>();
+  const hourlyActivity = new Array(24).fill(0) as number[];
+  const instanceCounts = new Map<string, number>();
+  let totalPlaytimeMin = 0;
+
+  for (const visit of visits) {
+    const wName = visit.world_name || "不明";
+    worldCounts.set(wName, (worldCounts.get(wName) || 0) + 1);
+
+    for (const player of visit.players) {
+      friendCounts.set(player, (friendCounts.get(player) || 0) + 1);
+    }
+
+    const hour = parseHour(visit.entered_at);
+    if (hour !== null) {
+      hourlyActivity[hour]++;
+    }
+
+    const iType = visit.instance_type || "Unknown";
+    instanceCounts.set(iType, (instanceCounts.get(iType) || 0) + 1);
+
+    if (visit.left_at) {
+      const duration = calcDurationMin(visit.entered_at, visit.left_at);
+      if (duration > 0) totalPlaytimeMin += duration;
+    }
+  }
+
+  const topWorlds = [...worldCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, count]) => ({ name, count }));
+
+  const topFriends = [...friendCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
+  const instanceTypes = [...instanceCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => ({ type, count }));
+
+  return {
+    totalVisits: visits.length,
+    totalPlaytimeMin,
+    topWorlds,
+    topFriends,
+    hourlyActivity,
+    instanceTypes,
+  };
+}
+
+function parseHour(ts: string): number | null {
+  const match = ts.match(/(\d{2}):\d{2}:\d{2}/);
+  if (match) return parseInt(match[1], 10);
+  return null;
+}
+
+function calcDurationMin(start: string, end: string): number {
+  try {
+    const s = new Date(start.replace(/\./g, "-").replace(" ", "T"));
+    const e = new Date(end.replace(/\./g, "-").replace(" ", "T"));
+    return Math.round((e.getTime() - s.getTime()) / 60000);
+  } catch {
+    return 0;
+  }
+}
+
+function formatPlaytime(minutes: number): string {
+  if (minutes < 60) return `${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}時間${mins > 0 ? `${mins}分` : ""}`;
 }
 
 export default Analytics;
