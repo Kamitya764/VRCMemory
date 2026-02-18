@@ -73,6 +73,26 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      # Validate the signing key format before passing it to tauri-action.
+      # Minisign private keys must start with "untrusted comment:" header line.
+      # If the key is missing or malformed, the build proceeds without signing.
+      - name: Validate updater signing key
+        id: signing
+        shell: bash
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set. Building without updater signing."
+          elif ! echo "$SIGNING_KEY" | head -1 | grep -q "^untrusted comment:"; then
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY has invalid format (missing 'untrusted comment:' header). Building without updater signing. Please regenerate with: pnpm tauri signer generate"
+          else
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+            echo "Signing key validated successfully."
+          fi
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
       # tauri-action handles:
       # 1. Building the app with --target
       # 2. Signing updater artifacts (.sig files) when TAURI_SIGNING_PRIVATE_KEY is set
@@ -81,8 +101,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.has_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.signing.outputs.has_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           args: --target ${{ matrix.target }}
           tauriScript: pnpm tauri
