@@ -112,6 +112,11 @@ pub fn run() {
             commands::build_encounters,
             commands::get_friend_encounters,
             commands::get_friend_stats,
+            commands::generate_ocr,
+            commands::compute_hashes,
+            commands::find_duplicates,
+            commands::suggest_auto_albums,
+            commands::create_auto_album,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -201,8 +206,9 @@ async fn watcher_poll_loop(handle: tauri::AppHandle) {
                     if let Ok(db) = db_state.0.lock() {
                         let filepath_str = path.to_string_lossy().to_string();
                         if let Ok(false) = db.photo_exists(&filepath_str) {
-                            if indexer::index_photo(&db, path).is_ok() {
-                                new_photos += 1;
+                            match indexer::index_photo(&db, path) {
+                                Ok(_) => new_photos += 1,
+                                Err(e) => log::warn!("Watcher: failed to index {:?}: {}", path, e),
                             }
                         }
                     }

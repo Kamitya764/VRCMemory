@@ -11,6 +11,8 @@ export interface Photo {
   tags: string[];
   caption: string | null;
   thumbnail_path: string | null;
+  ocr_text: string | null;
+  image_hash: string | null;
 }
 
 export interface SearchResult {
@@ -386,4 +388,42 @@ export interface SearchIndexStatus {
 
 export async function getSearchStatus(): Promise<SearchIndexStatus> {
   return invoke("get_search_status");
+}
+
+// Phase 4: OCR, Dedup, Auto-albums
+
+export async function generateOcr(batchSize?: number): Promise<number> {
+  return invoke("generate_ocr", { batchSize: batchSize ?? null });
+}
+
+export async function computeHashes(batchSize?: number): Promise<number> {
+  return invoke("compute_hashes", { batchSize: batchSize ?? null });
+}
+
+export interface DuplicateGroup {
+  hash: string;
+  photos: Photo[];
+}
+
+export async function findDuplicates(): Promise<DuplicateGroup[]> {
+  return invoke("find_duplicates");
+}
+
+export interface AutoAlbumSuggestion {
+  name: string;
+  world_name: string;
+  date: string;
+  photo_count: number;
+  photo_ids: string[];
+}
+
+export async function suggestAutoAlbums(): Promise<AutoAlbumSuggestion[]> {
+  return invoke("suggest_auto_albums");
+}
+
+export async function createAutoAlbum(
+  name: string,
+  photoIds: string[],
+): Promise<Album> {
+  return invoke("create_auto_album", { name, photoIds });
 }

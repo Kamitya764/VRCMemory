@@ -91,6 +91,38 @@ class WorldNameOCR:
             "world_name": world_name,
         }
 
+    def read_full_image(self, image_path: str) -> str | None:
+        """Read all text from an image file.
+
+        Args:
+            image_path: Path to image file on disk
+
+        Returns:
+            Extracted text or None
+        """
+        image = Image.open(image_path).convert("RGB")
+        text = ""
+
+        # Try manga-ocr first
+        self._load_manga_ocr()
+        if self._manga_ocr is not None:
+            try:
+                text = self._manga_ocr(image)
+            except Exception as e:
+                logger.warning(f"manga-ocr failed on {image_path}: {e}")
+
+        # Fallback to easyocr
+        if not text:
+            self._load_easyocr()
+            import numpy as np
+
+            img_array = np.array(image)
+            results = self._easyocr_reader.readtext(img_array)
+            if results:
+                text = " ".join([r[1] for r in results])
+
+        return text.strip() if text and text.strip() else None
+
     @staticmethod
     def _extract_world_name(raw_text: str) -> str | None:
         """Extract clean world name from OCR text."""

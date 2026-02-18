@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import caption, detect, embed, health, ocr, search
+from api.routes import caption, dedup, detect, embed, health, ocr, search
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +31,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:1420", "tauri://localhost"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 # Register routes
@@ -42,14 +42,17 @@ app.include_router(embed.router, prefix="/api/embed", tags=["embed"])
 app.include_router(detect.router, prefix="/api/detect", tags=["detect"])
 app.include_router(ocr.router, prefix="/api/ocr", tags=["ocr"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
+app.include_router(dedup.router, prefix="/api/dedup", tags=["dedup"])
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    import os
+    is_dev = os.environ.get("VRCMEMORY_ENV", "development") == "development"
     uvicorn.run(
         "main:app",
         host="127.0.0.1",
         port=8765,
-        reload=True,
+        reload=is_dev,
         log_level="info",
     )

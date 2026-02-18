@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use crate::error::AppResult;
-use crate::models::{Album, AlbumExport, AppSettings, Avatar, Encounter, ExportData, Friend, FriendStats, ImportStats, Photo, WorldVisit};
+use crate::models::{Album, AlbumExport, AppSettings, Avatar, DuplicateGroup, Encounter, ExportData, Friend, FriendStats, ImportStats, Photo, WorldVisit};
 
 pub struct DbState(pub Mutex<Database>);
 
@@ -32,6 +32,8 @@ impl Database {
                 tags TEXT DEFAULT '[]',
                 caption TEXT,
                 thumbnail_path TEXT,
+                ocr_text TEXT,
+                image_hash TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
@@ -112,6 +114,7 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_avatars_friend ON avatars(friend_id);
             CREATE INDEX IF NOT EXISTS idx_encounters_friend ON encounters(friend_id);
             CREATE INDEX IF NOT EXISTS idx_encounters_visit ON encounters(world_visit_id);
+            CREATE INDEX IF NOT EXISTS idx_photos_image_hash ON photos(image_hash);
             ",
         )?;
         Ok(())
@@ -124,38 +127,43 @@ impl Database {
             .query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))?;
 
         let mut stmt = self.conn.prepare(
-            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
              FROM photos ORDER BY datetime DESC LIMIT ?1 OFFSET ?2",
         )?;
 
         let photos = stmt
             .query_map(params![limit, offset], |row| {
-                let tags_str: String = row.get(6)?;
-                let tags: Vec<String> =
-                    serde_json::from_str(&tags_str).unwrap_or_default();
-                Ok(Photo {
-                    id: row.get(0)?,
-                    filepath: row.get(1)?,
-                    filename: row.get(2)?,
-                    datetime: row.get(3)?,
-                    world_name: row.get(4)?,
-                    world_id: row.get(5)?,
-                    tags,
-                    caption: row.get(7)?,
-                    thumbnail_path: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
+                Self::row_to_photo(row)
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((photos, total))
     }
 
+    fn row_to_photo(row: &rusqlite::Row) -> rusqlite::Result<Photo> {
+        let tags_str: String = row.get(6)?;
+        let tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
+        Ok(Photo {
+            id: row.get(0)?,
+            filepath: row.get(1)?,
+            filename: row.get(2)?,
+            datetime: row.get(3)?,
+            world_name: row.get(4)?,
+            world_id: row.get(5)?,
+            tags,
+            caption: row.get(7)?,
+            thumbnail_path: row.get(8)?,
+            ocr_text: row.get(9)?,
+            image_hash: row.get(10)?,
+            created_at: row.get(11)?,
+        })
+    }
+
     pub fn insert_photo(&self, photo: &Photo) -> AppResult<()> {
         let tags_json = serde_json::to_string(&photo.tags).unwrap_or_default();
         self.conn.execute(
-            "INSERT OR IGNORE INTO photos (id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR IGNORE INTO photos (id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 photo.id,
                 photo.filepath,
@@ -166,6 +174,8 @@ impl Database {
                 tags_json,
                 photo.caption,
                 photo.thumbnail_path,
+                photo.ocr_text,
+                photo.image_hash,
                 photo.created_at,
             ],
         )?;
@@ -174,28 +184,12 @@ impl Database {
 
     pub fn get_photo_by_id(&self, id: &str) -> AppResult<Option<Photo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
              FROM photos WHERE id = ?1",
         )?;
 
         let result = stmt
-            .query_row(params![id], |row| {
-                let tags_str: String = row.get(6)?;
-                let tags: Vec<String> =
-                    serde_json::from_str(&tags_str).unwrap_or_default();
-                Ok(Photo {
-                    id: row.get(0)?,
-                    filepath: row.get(1)?,
-                    filename: row.get(2)?,
-                    datetime: row.get(3)?,
-                    world_name: row.get(4)?,
-                    world_id: row.get(5)?,
-                    tags,
-                    caption: row.get(7)?,
-                    thumbnail_path: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            })
+            .query_row(params![id], Self::row_to_photo)
             .ok();
 
         Ok(result)
@@ -347,31 +341,97 @@ impl Database {
 
     pub fn get_photos_without_caption(&self, limit: i64) -> AppResult<Vec<Photo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
              FROM photos WHERE caption IS NULL ORDER BY datetime DESC LIMIT ?1",
         )?;
 
         let photos = stmt
-            .query_map(params![limit], |row| {
-                let tags_str: String = row.get(6)?;
-                let tags: Vec<String> =
-                    serde_json::from_str(&tags_str).unwrap_or_default();
-                Ok(Photo {
-                    id: row.get(0)?,
-                    filepath: row.get(1)?,
-                    filename: row.get(2)?,
-                    datetime: row.get(3)?,
-                    world_name: row.get(4)?,
-                    world_id: row.get(5)?,
-                    tags,
-                    caption: row.get(7)?,
-                    thumbnail_path: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            })?
+            .query_map(params![limit], Self::row_to_photo)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(photos)
+    }
+
+    pub fn get_photos_without_ocr(&self, limit: i64) -> AppResult<Vec<Photo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
+             FROM photos WHERE ocr_text IS NULL ORDER BY datetime DESC LIMIT ?1",
+        )?;
+
+        let photos = stmt
+            .query_map(params![limit], Self::row_to_photo)?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(photos)
+    }
+
+    pub fn update_photo_ocr(&self, photo_id: &str, ocr_text: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE photos SET ocr_text = ?1 WHERE id = ?2",
+            params![ocr_text, photo_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_photos_without_hash(&self, limit: i64) -> AppResult<Vec<Photo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
+             FROM photos WHERE image_hash IS NULL ORDER BY datetime DESC LIMIT ?1",
+        )?;
+
+        let photos = stmt
+            .query_map(params![limit], Self::row_to_photo)?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(photos)
+    }
+
+    pub fn update_photo_hash(&self, photo_id: &str, hash: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE photos SET image_hash = ?1 WHERE id = ?2",
+            params![hash, photo_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn find_duplicate_groups(&self) -> AppResult<Vec<DuplicateGroup>> {
+        // Single query using subquery to avoid N+1
+        let mut stmt = self.conn.prepare(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
+             FROM photos
+             WHERE image_hash IN (
+                 SELECT image_hash FROM photos
+                 WHERE image_hash IS NOT NULL
+                 GROUP BY image_hash HAVING COUNT(*) > 1
+             )
+             ORDER BY image_hash, datetime",
+        )?;
+
+        let photos = stmt
+            .query_map([], Self::row_to_photo)?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Group photos by hash in Rust
+        let mut groups: Vec<DuplicateGroup> = Vec::new();
+        let mut current_hash: Option<String> = None;
+
+        for photo in photos {
+            let hash = photo.image_hash.clone().unwrap_or_default();
+            if current_hash.as_deref() != Some(&hash) {
+                groups.push(DuplicateGroup {
+                    hash: hash.clone(),
+                    photos: vec![photo],
+                });
+                current_hash = Some(hash);
+            } else if let Some(last) = groups.last_mut() {
+                last.photos.push(photo);
+            }
+        }
+
+        // Sort by group size descending
+        groups.sort_by(|a, b| b.photos.len().cmp(&a.photos.len()));
+
+        Ok(groups)
     }
 
     pub fn photo_exists(&self, filepath: &str) -> AppResult<bool> {
@@ -392,36 +452,20 @@ impl Database {
 
         let total: usize = self.conn.query_row(
             "SELECT COUNT(*) FROM photos WHERE
-             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1",
+             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1 OR ocr_text LIKE ?1",
             params![search_pattern],
             |row| row.get(0),
         )?;
 
         let mut stmt = self.conn.prepare(
-            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
              FROM photos WHERE
-             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1
+             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1 OR ocr_text LIKE ?1
              ORDER BY datetime DESC LIMIT ?2",
         )?;
 
         let photos = stmt
-            .query_map(params![search_pattern, limit], |row| {
-                let tags_str: String = row.get(6)?;
-                let tags: Vec<String> =
-                    serde_json::from_str(&tags_str).unwrap_or_default();
-                Ok(Photo {
-                    id: row.get(0)?,
-                    filepath: row.get(1)?,
-                    filename: row.get(2)?,
-                    datetime: row.get(3)?,
-                    world_name: row.get(4)?,
-                    world_id: row.get(5)?,
-                    tags,
-                    caption: row.get(7)?,
-                    thumbnail_path: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            })?
+            .query_map(params![search_pattern, limit], Self::row_to_photo)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((photos, total))
@@ -466,7 +510,7 @@ impl Database {
             .query_row(&count_sql, params_refs.as_slice(), |row| row.get(0))?;
 
         let query_sql = format!(
-            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
              FROM photos {} ORDER BY datetime DESC LIMIT ?{} OFFSET ?{}",
             where_clause,
             param_values.len() + 1,
@@ -484,23 +528,7 @@ impl Database {
 
         let mut stmt = self.conn.prepare(&query_sql)?;
         let photos = stmt
-            .query_map(all_refs.as_slice(), |row| {
-                let tags_str: String = row.get(6)?;
-                let tags: Vec<String> =
-                    serde_json::from_str(&tags_str).unwrap_or_default();
-                Ok(Photo {
-                    id: row.get(0)?,
-                    filepath: row.get(1)?,
-                    filename: row.get(2)?,
-                    datetime: row.get(3)?,
-                    world_name: row.get(4)?,
-                    world_id: row.get(5)?,
-                    tags,
-                    caption: row.get(7)?,
-                    thumbnail_path: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            })?
+            .query_map(all_refs.as_slice(), Self::row_to_photo)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((photos, total))
@@ -586,32 +614,44 @@ impl Database {
     // Avatar operations
 
     pub fn get_avatars_for_friend(&self, friend_id: &str) -> AppResult<Vec<Avatar>> {
+        // Single query using LEFT JOIN to avoid N+1
         let mut stmt = self.conn.prepare(
-            "SELECT id, friend_id, name FROM avatars WHERE friend_id = ?1 ORDER BY created_at",
+            "SELECT a.id, a.friend_id, a.name, ar.image_path
+             FROM avatars a
+             LEFT JOIN avatar_references ar ON a.id = ar.avatar_id
+             WHERE a.friend_id = ?1
+             ORDER BY a.created_at, a.id",
         )?;
 
-        let avatars = stmt
+        let rows = stmt
             .query_map(params![friend_id], |row| {
-                let avatar_id: String = row.get(0)?;
-                Ok((avatar_id, row.get(1)?, row.get(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
             })?
-            .collect::<Result<Vec<(String, String, String)>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let mut result = Vec::new();
-        for (avatar_id, fid, name) in avatars {
-            let mut ref_stmt = self.conn.prepare(
-                "SELECT image_path FROM avatar_references WHERE avatar_id = ?1",
-            )?;
-            let refs = ref_stmt
-                .query_map(params![avatar_id], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
+        // Group rows by avatar in Rust
+        let mut result: Vec<Avatar> = Vec::new();
+        let mut current_id: Option<String> = None;
 
-            result.push(Avatar {
-                id: avatar_id,
-                friend_id: fid,
-                name,
-                reference_images: refs,
-            });
+        for (avatar_id, fid, name, image_path) in rows {
+            if current_id.as_deref() != Some(&avatar_id) {
+                result.push(Avatar {
+                    id: avatar_id.clone(),
+                    friend_id: fid,
+                    name,
+                    reference_images: image_path.into_iter().collect(),
+                });
+                current_id = Some(avatar_id);
+            } else if let Some(last) = result.last_mut() {
+                if let Some(path) = image_path {
+                    last.reference_images.push(path);
+                }
+            }
         }
 
         Ok(result)
@@ -862,7 +902,7 @@ impl Database {
 
         let mut stmt = self.conn.prepare(
             "SELECT p.id, p.filepath, p.filename, p.datetime, p.world_name, p.world_id,
-                    p.tags, p.caption, p.thumbnail_path, p.created_at
+                    p.tags, p.caption, p.thumbnail_path, p.ocr_text, p.image_hash, p.created_at
              FROM photos p
              JOIN album_photos ap ON ap.photo_id = p.id
              WHERE ap.album_id = ?1
@@ -870,23 +910,7 @@ impl Database {
         )?;
 
         let photos = stmt
-            .query_map(params![album_id], |row| {
-                let tags_str: String = row.get(6)?;
-                let tags: Vec<String> =
-                    serde_json::from_str(&tags_str).unwrap_or_default();
-                Ok(Photo {
-                    id: row.get(0)?,
-                    filepath: row.get(1)?,
-                    filename: row.get(2)?,
-                    datetime: row.get(3)?,
-                    world_name: row.get(4)?,
-                    world_id: row.get(5)?,
-                    tags,
-                    caption: row.get(7)?,
-                    thumbnail_path: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            })?
+            .query_map(params![album_id], Self::row_to_photo)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((photos, total))
@@ -1070,12 +1094,55 @@ impl Database {
             [],
             |row| row.get(0),
         )?;
+        let with_ocr: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE ocr_text IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
         Ok(PhotoStats {
             total,
             with_caption,
             with_world,
             with_thumbnail,
+            with_ocr,
         })
+    }
+
+    /// Suggest auto albums based on world visit sessions
+    pub fn suggest_auto_albums(&self) -> AppResult<Vec<AutoAlbumSuggestion>> {
+        // Group photos by world_name + date (within same day)
+        let mut stmt = self.conn.prepare(
+            "SELECT world_name, DATE(datetime) as visit_date, COUNT(*) as cnt,
+                    MIN(datetime) as first_photo, MAX(datetime) as last_photo,
+                    GROUP_CONCAT(id) as photo_ids
+             FROM photos
+             WHERE world_name IS NOT NULL
+             GROUP BY world_name, DATE(datetime)
+             HAVING cnt >= 3
+             ORDER BY first_photo DESC
+             LIMIT 20",
+        )?;
+
+        let suggestions = stmt
+            .query_map([], |row| {
+                let world_name: String = row.get(0)?;
+                let visit_date: String = row.get(1)?;
+                let photo_count: usize = row.get(2)?;
+                let first_photo: String = row.get(3)?;
+                let photo_ids_str: String = row.get(5)?;
+                let photo_ids: Vec<String> = photo_ids_str.split(',').map(|s| s.to_string()).collect();
+
+                Ok(AutoAlbumSuggestion {
+                    name: format!("{} ({})", world_name, visit_date),
+                    world_name,
+                    date: first_photo,
+                    photo_count,
+                    photo_ids,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(suggestions)
     }
 }
 
@@ -1086,6 +1153,16 @@ pub struct PhotoStats {
     pub with_caption: usize,
     pub with_world: usize,
     pub with_thumbnail: usize,
+    pub with_ocr: usize,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AutoAlbumSuggestion {
+    pub name: String,
+    pub world_name: String,
+    pub date: String,
+    pub photo_count: usize,
+    pub photo_ids: Vec<String>,
 }
 
 #[cfg(test)]
@@ -1108,6 +1185,8 @@ mod tests {
             tags: vec![],
             caption: None,
             thumbnail_path: None,
+            ocr_text: None,
+            image_hash: None,
             created_at: "2025-01-01T00:00:00Z".to_string(),
         }
     }

@@ -11,7 +11,15 @@ pub struct Photo {
     pub tags: Vec<String>,
     pub caption: Option<String>,
     pub thumbnail_path: Option<String>,
+    pub ocr_text: Option<String>,
+    pub image_hash: Option<String>,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DuplicateGroup {
+    pub hash: String,
+    pub photos: Vec<Photo>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

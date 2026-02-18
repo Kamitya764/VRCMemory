@@ -1,9 +1,10 @@
 """Image captioning endpoints using LLaVA/BLIP-2."""
 
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from core.caption import CaptionGenerator
+from core.utils import validate_image_path
 
 router = APIRouter()
 
@@ -45,7 +46,11 @@ async def batch_caption(request: BatchCaptionRequest):
     generator = get_generator()
     results = []
     for path in request.image_paths:
-        with open(path, "rb") as f:
+        try:
+            validated = validate_image_path(path)
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        with open(validated, "rb") as f:
             caption = generator.generate(f.read())
         results.append({"path": path, "caption": caption})
     return BatchCaptionResponse(results=results)

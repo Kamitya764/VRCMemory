@@ -109,6 +109,8 @@ pub fn index_photo(db: &Database, filepath: &Path) -> AppResult<Photo> {
         tags: vec![],
         caption: None,
         thumbnail_path: None,
+        ocr_text: None,
+        image_hash: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 

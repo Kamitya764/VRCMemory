@@ -6,7 +6,7 @@ use tauri::{Manager, State};
 use crate::db::DbState;
 use crate::error::{AppError, AppResult};
 use crate::indexer::IndexerState;
-use crate::models::{Album, AppSettings, Avatar, Encounter, ExportData, Friend, FriendStats, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
+use crate::models::{Album, AppSettings, Avatar, DuplicateGroup, Encounter, ExportData, Friend, FriendStats, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
 use crate::sidecar::SidecarState;
 
 #[tauri::command]
@@ -267,7 +267,7 @@ pub async fn generate_captions(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<usize> {
-    let limit = batch_size.unwrap_or(10);
+    let limit = batch_size.unwrap_or(10).min(500);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
@@ -592,17 +592,30 @@ pub fn get_world_history_filtered(
     db.get_world_history_filtered(date_from.as_deref(), date_to.as_deref())
 }
 
+/// Validate that a file path has an allowed extension and no path traversal
+fn validate_export_path(path: &str, allowed_ext: &str) -> AppResult<PathBuf> {
+    if path.contains("..") {
+        return Err(AppError::Parse("Path traversal detected".to_string()));
+    }
+    let p = PathBuf::from(path);
+    match p.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case(allowed_ext) => Ok(p),
+        _ => Err(AppError::Parse(format!("File must have .{} extension", allowed_ext))),
+    }
+}
+
 /// Export all user data to a JSON file
 #[tauri::command]
 pub fn export_data_to_file(
     path: String,
     db: State<DbState>,
 ) -> AppResult<()> {
+    let validated_path = validate_export_path(&path, "json")?;
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     let data = db.export_all_data()?;
     let json = serde_json::to_string_pretty(&data)
         .map_err(|e| AppError::Parse(e.to_string()))?;
-    std::fs::write(&path, json)
+    std::fs::write(&validated_path, json)
         .map_err(|e| AppError::Parse(format!("Failed to write file: {}", e)))?;
     Ok(())
 }
@@ -613,12 +626,128 @@ pub fn import_data_from_file(
     path: String,
     db: State<DbState>,
 ) -> AppResult<ImportStats> {
-    let json = std::fs::read_to_string(&path)
+    let validated_path = validate_export_path(&path, "json")?;
+    let json = std::fs::read_to_string(&validated_path)
         .map_err(|e| AppError::Parse(format!("Failed to read file: {}", e)))?;
     let data: ExportData = serde_json::from_str(&json)
         .map_err(|e| AppError::Parse(format!("Invalid data format: {}", e)))?;
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     db.import_data(&data)
+}
+
+// --- Phase 4: OCR, Dedup, Auto-albums ---
+
+/// Run OCR on photos that don't have OCR text yet
+#[tauri::command]
+pub async fn generate_ocr(
+    batch_size: Option<i64>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<usize> {
+    let limit = batch_size.unwrap_or(20).min(500);
+
+    let photos = {
+        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        db.get_photos_without_ocr(limit)?
+    };
+
+    if photos.is_empty() {
+        return Ok(0);
+    }
+
+    let paths: Vec<String> = photos.iter().map(|p| p.filepath.clone()).collect();
+    let result = sidecar.ocr_batch(&paths).await?;
+
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let mut processed = 0;
+
+    for ocr_result in &result.results {
+        if let Some(text) = &ocr_result.text {
+            if !text.trim().is_empty() {
+                if let Some(photo) = photos.iter().find(|p| p.filepath == ocr_result.path) {
+                    db.update_photo_ocr(&photo.id, text)?;
+                    processed += 1;
+                }
+            }
+        }
+    }
+
+    log::info!("OCR processed {} out of {} photos", processed, photos.len());
+    Ok(processed)
+}
+
+/// Compute perceptual hashes for photos that don't have one
+#[tauri::command]
+pub async fn compute_hashes(
+    batch_size: Option<i64>,
+    db: State<'_, DbState>,
+    sidecar: State<'_, SidecarState>,
+) -> AppResult<usize> {
+    let limit = batch_size.unwrap_or(50).min(1000);
+
+    let photos = {
+        let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+        db.get_photos_without_hash(limit)?
+    };
+
+    if photos.is_empty() {
+        return Ok(0);
+    }
+
+    let paths: Vec<String> = photos.iter().map(|p| p.filepath.clone()).collect();
+    let result = sidecar.hash_batch(&paths).await?;
+
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let mut hashed = 0;
+
+    for hash_result in &result.results {
+        if let Some(hash) = &hash_result.hash {
+            if let Some(photo) = photos.iter().find(|p| p.filepath == hash_result.path) {
+                db.update_photo_hash(&photo.id, hash)?;
+                hashed += 1;
+            }
+        }
+    }
+
+    log::info!("Hashed {} out of {} photos", hashed, photos.len());
+    Ok(hashed)
+}
+
+/// Find duplicate photo groups based on perceptual hash
+#[tauri::command]
+pub fn find_duplicates(db: State<DbState>) -> AppResult<Vec<DuplicateGroup>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.find_duplicate_groups()
+}
+
+/// Suggest auto albums based on world visit sessions
+#[tauri::command]
+pub fn suggest_auto_albums(
+    db: State<DbState>,
+) -> AppResult<Vec<crate::db::AutoAlbumSuggestion>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.suggest_auto_albums()
+}
+
+/// Create album from auto-album suggestion
+#[tauri::command]
+pub fn create_auto_album(
+    name: String,
+    photo_ids: Vec<String>,
+    db: State<DbState>,
+) -> AppResult<Album> {
+    let album = Album {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        description: Some("自動生成".to_string()),
+        photo_count: 0,
+        cover_photo: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.create_album(&album)?;
+    db.add_photos_to_album(&album.id, &photo_ids)?;
+    Ok(album)
 }
 
 // --- AI Search commands (Phase 2) ---
@@ -667,7 +796,7 @@ pub async fn index_photos_vectors(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<serde_json::Value> {
-    let limit = batch_size.unwrap_or(50);
+    let limit = batch_size.unwrap_or(50).min(500);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
@@ -702,7 +831,7 @@ pub async fn index_photos_text(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<serde_json::Value> {
-    let limit = batch_size.unwrap_or(100);
+    let limit = batch_size.unwrap_or(100).min(1000);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
