@@ -286,15 +286,14 @@ impl Database {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
 
-        for row in rows {
-            if let Ok((key, value)) = row {
-                match key.as_str() {
-                    "photo_folder" => settings.photo_folder = value,
-                    "log_folder" => settings.log_folder = value,
-                    "theme" => settings.theme = value,
-                    "gpu_enabled" => settings.gpu_enabled = value == "true",
-                    _ => {}
-                }
+        for row in rows.flatten() {
+            let (key, value) = row;
+            match key.as_str() {
+                "photo_folder" => settings.photo_folder = value,
+                "log_folder" => settings.log_folder = value,
+                "theme" => settings.theme = value,
+                "gpu_enabled" => settings.gpu_enabled = value == "true",
+                _ => {}
             }
         }
 

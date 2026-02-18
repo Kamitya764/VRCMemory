@@ -42,11 +42,9 @@ pub fn scan_photo_folder(folder: &Path) -> AppResult<Vec<PathBuf>> {
     // VRChat screenshots are organized in subfolders by date: VRChat/YYYY-MM/
     // Filename format: VRChat_YYYY-MM-DD_HH-MM-SS.SSS_WIDTHxHEIGHT.png
     let pattern = folder.join("**/*.png").to_string_lossy().to_string();
-    for entry in glob::glob(&pattern).map_err(|e| crate::error::AppError::Parse(e.to_string()))? {
-        if let Ok(path) = entry {
-            if is_vrchat_screenshot(&path) {
-                photos.push(path);
-            }
+    for path in glob::glob(&pattern).map_err(|e| crate::error::AppError::Parse(e.to_string()))?.flatten() {
+        if is_vrchat_screenshot(&path) {
+            photos.push(path);
         }
     }
 

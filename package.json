@@ -13,17 +13,25 @@
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck && pnpm lint"
   },
-  "keywords": ["vrchat", "photo-management", "tauri", "ai"],
+  "keywords": [
+    "vrchat",
+    "photo-management",
+    "tauri",
+    "ai"
+  ],
   "author": "",
   "license": "MIT",
   "packageManager": "pnpm@10.29.3",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.1.18",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
+    "eslint": "^10.0.0",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.0",
     "vite": "^7.3.1"
   },
   "dependencies": {

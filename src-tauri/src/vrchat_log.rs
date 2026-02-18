@@ -80,12 +80,12 @@ impl VRChatLogParser {
     /// Parse a VRChat log file and return all entries
     pub fn parse_file(&self, path: &Path) -> AppResult<Vec<LogEntry>> {
         let file = std::fs::File::open(path)
-            .map_err(|e| AppError::Io(e))?;
+            .map_err(AppError::Io)?;
         let reader = BufReader::new(file);
         let mut entries = Vec::new();
 
         for line in reader.lines() {
-            let line = line.map_err(|e| AppError::Io(e))?;
+            let line = line.map_err(AppError::Io)?;
             if let Some(entry) = self.parse_line(&line) {
                 entries.push(entry);
             }
