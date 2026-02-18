@@ -7,6 +7,8 @@ import PhotoDetail from "@/components/PhotoDetail";
 
 const PAGE_SIZE = 60;
 
+type SortMode = "date_desc" | "date_asc" | "name_asc" | "name_desc";
+
 interface PhotoGridProps {
   view: View;
   searchQuery: string;
@@ -20,7 +22,11 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("date_desc");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Debounced search
   useEffect(() => {
@@ -47,18 +53,53 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     };
   }, [searchQuery, photos]);
 
-  const filteredPhotos = (() => {
+  // Sort photos
+  const sortedPhotos = (() => {
+    let filtered = displayPhotos;
     if (view === "recent") {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      return displayPhotos.filter(
+      filtered = displayPhotos.filter(
         (p) => new Date(p.datetime) >= weekAgo,
       );
     }
-    return displayPhotos;
+    const sorted = [...filtered];
+    switch (sortMode) {
+      case "date_desc":
+        sorted.sort((a, b) => b.datetime.localeCompare(a.datetime));
+        break;
+      case "date_asc":
+        sorted.sort((a, b) => a.datetime.localeCompare(b.datetime));
+        break;
+      case "name_asc":
+        sorted.sort((a, b) => a.filename.localeCompare(b.filename));
+        break;
+      case "name_desc":
+        sorted.sort((a, b) => b.filename.localeCompare(a.filename));
+        break;
+    }
+    return sorted;
   })();
 
-  const visiblePhotos = filteredPhotos.slice(0, visibleCount);
+  const visiblePhotos = sortedPhotos.slice(0, visibleCount);
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore) {
+          handleLoadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadingMore, sortedPhotos.length, visibleCount]);
 
   const handleLoadMore = useCallback(async () => {
     if (loadingMore) return;
@@ -78,11 +119,41 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
       }
     } else {
       setVisibleCount((prev) => prev + PAGE_SIZE);
-      setHasMore(filteredPhotos.length > visibleCount + PAGE_SIZE);
+      setHasMore(sortedPhotos.length > visibleCount + PAGE_SIZE);
     }
 
     setLoadingMore(false);
-  }, [loadingMore, searchQuery, displayPhotos.length, filteredPhotos.length, visibleCount]);
+  }, [loadingMore, searchQuery, displayPhotos.length, sortedPhotos.length, visibleCount]);
+
+  // Selection helpers
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(visiblePhotos.map((p) => p.id)));
+  };
+
+  const handlePhotoClick = (photo: Photo) => {
+    if (selectionMode) {
+      toggleSelection(photo.id);
+    } else {
+      setSelectedPhotoId(photo.id);
+    }
+  };
 
   const viewLabels: Record<string, string> = {
     all: "すべての写真",
@@ -90,7 +161,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     albums: "アルバム",
   };
 
-  if (filteredPhotos.length === 0) {
+  if (sortedPhotos.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-[var(--color-text-muted)]">
         <h2 className="mb-4 text-xl font-semibold text-[var(--color-text)]">
@@ -120,24 +191,92 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
 
   return (
     <div>
+      {/* Toolbar */}
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">
-          {searchQuery
-            ? `「${searchQuery}」の検索結果`
-            : viewLabels[view] || view}
-        </h2>
-        <span className="text-sm text-[var(--color-text-muted)]">
-          {filteredPhotos.length} 枚
-        </span>
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold">
+            {searchQuery
+              ? `「${searchQuery}」の検索結果`
+              : viewLabels[view] || view}
+          </h2>
+          <span className="text-sm text-[var(--color-text-muted)]">
+            {sortedPhotos.length} 枚
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Selection mode toggle */}
+          {selectionMode ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {selectedIds.size} 枚選択
+              </span>
+              <button
+                onClick={selectAll}
+                className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              >
+                全選択
+              </button>
+              <button
+                onClick={clearSelection}
+                className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              >
+                解除
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setSelectionMode(true)}
+              className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              title="選択モード"
+            >
+              選択
+            </button>
+          )}
+
+          {/* Sort dropdown */}
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+            className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text-muted)] outline-none"
+          >
+            <option value="date_desc">日付 新しい順</option>
+            <option value="date_asc">日付 古い順</option>
+            <option value="name_asc">名前 A→Z</option>
+            <option value="name_desc">名前 Z→A</option>
+          </select>
+        </div>
       </div>
 
+      {/* Photo grid */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {visiblePhotos.map((photo) => (
           <button
             key={photo.id}
-            onClick={() => setSelectedPhotoId(photo.id)}
-            className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-all hover:border-[var(--color-primary)]"
+            onClick={() => handlePhotoClick(photo)}
+            className={`group relative aspect-square overflow-hidden rounded-lg border bg-[var(--color-surface)] transition-all ${
+              selectionMode && selectedIds.has(photo.id)
+                ? "border-[var(--color-primary)] ring-2 ring-[var(--color-primary)]"
+                : "border-[var(--color-border)] hover:border-[var(--color-primary)]"
+            }`}
           >
+            {/* Selection checkbox */}
+            {selectionMode && (
+              <div
+                className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded border-2 transition-colors ${
+                  selectedIds.has(photo.id)
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary)]"
+                    : "border-white/70 bg-black/30"
+                }`}
+              >
+                {selectedIds.has(photo.id) && (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </div>
+            )}
+
             <img
               src={toAssetUrl(photo.filepath)}
               alt={photo.filename}
@@ -167,16 +306,14 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
         ))}
       </div>
 
-      {/* Load more */}
-      {(hasMore || filteredPhotos.length > visibleCount) && (
-        <div className="mt-6 flex justify-center">
-          <button
-            onClick={handleLoadMore}
-            disabled={loadingMore}
-            className="rounded-lg border border-[var(--color-border)] px-6 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] disabled:opacity-50"
-          >
-            {loadingMore ? "読み込み中..." : "もっと見る"}
-          </button>
+      {/* Infinite scroll sentinel */}
+      {(hasMore || sortedPhotos.length > visibleCount) && (
+        <div ref={sentinelRef} className="mt-6 flex justify-center py-4">
+          {loadingMore && (
+            <span className="text-sm text-[var(--color-text-muted)]">
+              読み込み中...
+            </span>
+          )}
         </div>
       )}
 
