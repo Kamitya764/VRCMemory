@@ -365,13 +365,28 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               <label className="mb-1 block text-sm text-[var(--color-text-muted)]">
                 写真フォルダパス
               </label>
-              <input
-                type="text"
-                value={photoFolder}
-                onChange={(e) => setPhotoFolder(e.target.value)}
-                placeholder="例: C:\Users\YourName\Pictures\VRChat"
-                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)]"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={photoFolder}
+                  onChange={(e) => setPhotoFolder(e.target.value)}
+                  placeholder="例: C:\Users\YourName\Pictures\VRChat"
+                  className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)]"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const { open } = await import("@tauri-apps/plugin-dialog");
+                      const selected = await open({ directory: true, multiple: false });
+                      if (selected) setPhotoFolder(selected as string);
+                    } catch { /* not in Tauri */ }
+                  }}
+                  className="shrink-0 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  参照
+                </button>
+              </div>
               <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                 通常: %UserProfile%\Pictures\VRChat
               </p>
@@ -412,13 +427,28 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               <label className="mb-1 block text-sm text-[var(--color-text-muted)]">
                 ログフォルダパス
               </label>
-              <input
-                type="text"
-                value={logFolder}
-                onChange={(e) => setLogFolder(e.target.value)}
-                placeholder="例: C:\Users\YourName\AppData\LocalLow\VRChat\VRChat"
-                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)]"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={logFolder}
+                  onChange={(e) => setLogFolder(e.target.value)}
+                  placeholder="例: C:\Users\YourName\AppData\LocalLow\VRChat\VRChat"
+                  className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)]"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const { open } = await import("@tauri-apps/plugin-dialog");
+                      const selected = await open({ directory: true, multiple: false });
+                      if (selected) setLogFolder(selected as string);
+                    } catch { /* not in Tauri */ }
+                  }}
+                  className="shrink-0 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  参照
+                </button>
+              </div>
               <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                 通常: %LOCALAPPDATA%Low\VRChat\VRChat
               </p>

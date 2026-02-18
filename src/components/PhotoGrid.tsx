@@ -486,14 +486,20 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
             )}
 
             <img
-              src={toAssetUrl(photo.filepath)}
+              src={toAssetUrl(photo.thumbnail_path || photo.filepath)}
               alt={photo.filename}
               className="h-full w-full object-cover"
               loading="lazy"
               onError={(e) => {
-                e.currentTarget.style.display = "none";
-                if (e.currentTarget.nextElementSibling) {
-                  (e.currentTarget.nextElementSibling as HTMLElement).style.display = "flex";
+                // If thumbnail failed, try full image; if full image failed, show fallback
+                const img = e.currentTarget;
+                if (photo.thumbnail_path && img.src.includes("_thumb")) {
+                  img.src = toAssetUrl(photo.filepath);
+                  return;
+                }
+                img.style.display = "none";
+                if (img.nextElementSibling) {
+                  (img.nextElementSibling as HTMLElement).style.display = "flex";
                 }
               }}
             />
