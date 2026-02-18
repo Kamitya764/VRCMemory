@@ -489,3 +489,31 @@ pub fn update_photo_tags(
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     db.update_photo_tags(&id, &tags)
 }
+
+/// Filter photos by world name and/or date range
+#[tauri::command]
+pub fn filter_photos(
+    world_name: Option<String>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    offset: i64,
+    limit: i64,
+    db: State<DbState>,
+) -> AppResult<SearchResult> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    let (photos, total) = db.filter_photos(
+        world_name.as_deref(),
+        date_from.as_deref(),
+        date_to.as_deref(),
+        offset,
+        limit,
+    )?;
+    Ok(SearchResult { photos, total })
+}
+
+/// Get distinct world names for filter dropdown
+#[tauri::command]
+pub fn get_world_names(db: State<DbState>) -> AppResult<Vec<String>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.get_world_names()
+}

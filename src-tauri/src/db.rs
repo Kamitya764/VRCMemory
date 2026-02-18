@@ -411,6 +411,96 @@ impl Database {
         Ok((photos, total))
     }
 
+    /// Filter photos with optional world name and date range
+    pub fn filter_photos(
+        &self,
+        world_name: Option<&str>,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> AppResult<(Vec<Photo>, usize)> {
+        let mut conditions = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(world) = world_name {
+            conditions.push(format!("world_name LIKE ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("%{}%", world)));
+        }
+        if let Some(from) = date_from {
+            conditions.push(format!("datetime >= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(from.to_string()));
+        }
+        if let Some(to) = date_to {
+            conditions.push(format!("datetime <= ?{}", param_values.len() + 1));
+            param_values.push(Box::new(format!("{}T23:59:59", to)));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let count_sql = format!("SELECT COUNT(*) FROM photos {}", where_clause);
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let total: usize = self
+            .conn
+            .query_row(&count_sql, params_refs.as_slice(), |row| row.get(0))?;
+
+        let query_sql = format!(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, created_at
+             FROM photos {} ORDER BY datetime DESC LIMIT ?{} OFFSET ?{}",
+            where_clause,
+            param_values.len() + 1,
+            param_values.len() + 2
+        );
+
+        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = param_values
+            .into_iter()
+            .collect();
+        all_params.push(Box::new(limit));
+        all_params.push(Box::new(offset));
+
+        let all_refs: Vec<&dyn rusqlite::types::ToSql> =
+            all_params.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&query_sql)?;
+        let photos = stmt
+            .query_map(all_refs.as_slice(), |row| {
+                let tags_str: String = row.get(6)?;
+                let tags: Vec<String> =
+                    serde_json::from_str(&tags_str).unwrap_or_default();
+                Ok(Photo {
+                    id: row.get(0)?,
+                    filepath: row.get(1)?,
+                    filename: row.get(2)?,
+                    datetime: row.get(3)?,
+                    world_name: row.get(4)?,
+                    world_id: row.get(5)?,
+                    tags,
+                    caption: row.get(7)?,
+                    thumbnail_path: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((photos, total))
+    }
+
+    /// Get distinct world names for filter dropdown
+    pub fn get_world_names(&self) -> AppResult<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT world_name FROM photos WHERE world_name IS NOT NULL ORDER BY world_name",
+        )?;
+        let names = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(names)
+    }
+
     #[allow(dead_code)]
     pub fn get_photo_count(&self) -> AppResult<usize> {
         let count: usize = self
@@ -640,4 +730,369 @@ pub struct PhotoStats {
     pub with_caption: usize,
     pub with_world: usize,
     pub with_thumbnail: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn test_db() -> Database {
+        Database::new(Path::new(":memory:")).unwrap()
+    }
+
+    fn make_photo(id: &str, datetime: &str, world_name: Option<&str>) -> Photo {
+        Photo {
+            id: id.to_string(),
+            filepath: format!("/photos/{}.png", id),
+            filename: format!("{}.png", id),
+            datetime: datetime.to_string(),
+            world_name: world_name.map(|s| s.to_string()),
+            world_id: world_name.map(|_| "wrld_test".to_string()),
+            tags: vec![],
+            caption: None,
+            thumbnail_path: None,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_photo_crud() {
+        let db = test_db();
+        let photo = make_photo("p1", "2025-06-15T12:00:00", Some("Test World"));
+        db.insert_photo(&photo).unwrap();
+
+        let (photos, total) = db.get_photos(0, 10).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(photos[0].id, "p1");
+        assert_eq!(photos[0].world_name.as_deref(), Some("Test World"));
+
+        let found = db.get_photo_by_id("p1").unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().filename, "p1.png");
+
+        let missing = db.get_photo_by_id("nonexistent").unwrap();
+        assert!(missing.is_none());
+
+        assert!(db.photo_exists("/photos/p1.png").unwrap());
+        assert!(!db.photo_exists("/photos/nope.png").unwrap());
+
+        db.delete_photo("p1").unwrap();
+        let (_, total) = db.get_photos(0, 10).unwrap();
+        assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn test_bulk_delete_photos() {
+        let db = test_db();
+        for i in 0..5 {
+            db.insert_photo(&make_photo(&format!("p{}", i), "2025-06-15T12:00:00", None))
+                .unwrap();
+        }
+        let deleted = db
+            .delete_photos(&["p1".to_string(), "p3".to_string()])
+            .unwrap();
+        assert_eq!(deleted, 2);
+        let (_, total) = db.get_photos(0, 10).unwrap();
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn test_photo_tags() {
+        let db = test_db();
+        db.insert_photo(&make_photo("p1", "2025-06-15T12:00:00", None))
+            .unwrap();
+        db.update_photo_tags("p1", &["sunset".to_string(), "friends".to_string()])
+            .unwrap();
+
+        let photo = db.get_photo_by_id("p1").unwrap().unwrap();
+        assert_eq!(photo.tags, vec!["sunset", "friends"]);
+    }
+
+    #[test]
+    fn test_photo_caption_and_thumbnail() {
+        let db = test_db();
+        db.insert_photo(&make_photo("p1", "2025-06-15T12:00:00", None))
+            .unwrap();
+
+        db.update_photo_caption("p1", "A beautiful sunset").unwrap();
+        db.update_photo_thumbnail("p1", "/thumbs/p1.jpg").unwrap();
+
+        let photo = db.get_photo_by_id("p1").unwrap().unwrap();
+        assert_eq!(photo.caption.as_deref(), Some("A beautiful sunset"));
+        assert_eq!(photo.thumbnail_path.as_deref(), Some("/thumbs/p1.jpg"));
+    }
+
+    #[test]
+    fn test_photo_world_update() {
+        let db = test_db();
+        db.insert_photo(&make_photo("p1", "2025-06-15T12:00:00", None))
+            .unwrap();
+
+        db.update_photo_world("p1", "My World", "wrld_abc").unwrap();
+        let photo = db.get_photo_by_id("p1").unwrap().unwrap();
+        assert_eq!(photo.world_name.as_deref(), Some("My World"));
+        assert_eq!(photo.world_id.as_deref(), Some("wrld_abc"));
+    }
+
+    #[test]
+    fn test_search_photos() {
+        let db = test_db();
+        let mut p1 = make_photo("p1", "2025-06-15T12:00:00", Some("Cherry Blossom"));
+        p1.caption = Some("sakura trees".to_string());
+        db.insert_photo(&p1).unwrap();
+        db.insert_photo(&make_photo("p2", "2025-06-16T12:00:00", Some("Ocean View")))
+            .unwrap();
+
+        let (results, total) = db.search_photos_by_text("Cherry", 10).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(results[0].id, "p1");
+
+        let (results, _) = db.search_photos_by_text("sakura", 10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let (results, _) = db.search_photos_by_text("nonexistent", 10).unwrap();
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_photos() {
+        let db = test_db();
+        db.insert_photo(&make_photo("p1", "2025-06-10T12:00:00", Some("WorldA")))
+            .unwrap();
+        db.insert_photo(&make_photo("p2", "2025-06-15T12:00:00", Some("WorldB")))
+            .unwrap();
+        db.insert_photo(&make_photo("p3", "2025-06-20T12:00:00", Some("WorldA")))
+            .unwrap();
+
+        // Filter by world
+        let (results, total) = db.filter_photos(Some("WorldA"), None, None, 0, 100).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(results.len(), 2);
+
+        // Filter by date range
+        let (results, total) = db
+            .filter_photos(None, Some("2025-06-12"), Some("2025-06-18"), 0, 100)
+            .unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(results[0].id, "p2");
+
+        // Filter by world + date
+        let (results, total) = db
+            .filter_photos(Some("WorldA"), Some("2025-06-15"), None, 0, 100)
+            .unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(results[0].id, "p3");
+
+        // No filters returns all
+        let (_, total) = db.filter_photos(None, None, None, 0, 100).unwrap();
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn test_get_world_names() {
+        let db = test_db();
+        db.insert_photo(&make_photo("p1", "2025-06-10T12:00:00", Some("WorldB")))
+            .unwrap();
+        db.insert_photo(&make_photo("p2", "2025-06-15T12:00:00", Some("WorldA")))
+            .unwrap();
+        db.insert_photo(&make_photo("p3", "2025-06-20T12:00:00", Some("WorldB")))
+            .unwrap();
+        db.insert_photo(&make_photo("p4", "2025-06-20T12:00:00", None))
+            .unwrap();
+
+        let names = db.get_world_names().unwrap();
+        assert_eq!(names, vec!["WorldA", "WorldB"]);
+    }
+
+    #[test]
+    fn test_photo_stats() {
+        let db = test_db();
+        let mut p1 = make_photo("p1", "2025-06-10T12:00:00", Some("World"));
+        p1.caption = Some("caption".to_string());
+        p1.thumbnail_path = Some("/thumb.jpg".to_string());
+        db.insert_photo(&p1).unwrap();
+        db.insert_photo(&make_photo("p2", "2025-06-15T12:00:00", None))
+            .unwrap();
+
+        let stats = db.get_photo_stats().unwrap();
+        assert_eq!(stats.total, 2);
+        assert_eq!(stats.with_caption, 1);
+        assert_eq!(stats.with_world, 1);
+        assert_eq!(stats.with_thumbnail, 1);
+    }
+
+    #[test]
+    fn test_album_crud() {
+        let db = test_db();
+        let album = Album {
+            id: "a1".to_string(),
+            name: "Vacation".to_string(),
+            description: Some("Summer trip".to_string()),
+            photo_count: 0,
+            cover_photo: None,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+        db.create_album(&album).unwrap();
+
+        let albums = db.get_albums().unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].name, "Vacation");
+        assert_eq!(albums[0].description.as_deref(), Some("Summer trip"));
+
+        db.update_album("a1", "Holiday", Some("Winter trip")).unwrap();
+        let albums = db.get_albums().unwrap();
+        assert_eq!(albums[0].name, "Holiday");
+
+        db.delete_album("a1").unwrap();
+        let albums = db.get_albums().unwrap();
+        assert_eq!(albums.len(), 0);
+    }
+
+    #[test]
+    fn test_album_photos() {
+        let db = test_db();
+        db.insert_photo(&make_photo("p1", "2025-06-10T12:00:00", None))
+            .unwrap();
+        db.insert_photo(&make_photo("p2", "2025-06-15T12:00:00", None))
+            .unwrap();
+
+        let album = Album {
+            id: "a1".to_string(),
+            name: "Test".to_string(),
+            description: None,
+            photo_count: 0,
+            cover_photo: None,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+        db.create_album(&album).unwrap();
+
+        let added = db
+            .add_photos_to_album("a1", &["p1".to_string(), "p2".to_string()])
+            .unwrap();
+        assert_eq!(added, 2);
+
+        // Duplicate add should not increase count
+        let added = db
+            .add_photos_to_album("a1", &["p1".to_string()])
+            .unwrap();
+        assert_eq!(added, 0);
+
+        let (photos, total) = db.get_album_photos("a1").unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(photos.len(), 2);
+
+        let removed = db
+            .remove_photos_from_album("a1", &["p1".to_string()])
+            .unwrap();
+        assert_eq!(removed, 1);
+
+        let (_, total) = db.get_album_photos("a1").unwrap();
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn test_world_visit_crud() {
+        let db = test_db();
+        let visit = WorldVisit {
+            id: "w1".to_string(),
+            world_name: "Cool World".to_string(),
+            world_id: "wrld_123".to_string(),
+            entered_at: "2025-06-10T12:00:00Z".to_string(),
+            left_at: Some("2025-06-10T13:00:00Z".to_string()),
+            players: vec!["Player1".to_string(), "Player2".to_string()],
+            instance_type: "friends".to_string(),
+            rating: None,
+            notes: None,
+        };
+        db.insert_world_visit(&visit).unwrap();
+
+        let history = db.get_world_history().unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].world_name, "Cool World");
+        assert_eq!(history[0].players.len(), 2);
+
+        db.update_world_visit_rating("w1", Some(5)).unwrap();
+        db.update_world_visit_notes("w1", Some("Great place!")).unwrap();
+
+        let history = db.get_world_history().unwrap();
+        assert_eq!(history[0].rating, Some(5));
+        assert_eq!(history[0].notes.as_deref(), Some("Great place!"));
+
+        // Clear rating
+        db.update_world_visit_rating("w1", None).unwrap();
+        let history = db.get_world_history().unwrap();
+        assert_eq!(history[0].rating, None);
+    }
+
+    #[test]
+    fn test_friend_crud() {
+        let db = test_db();
+        let friend = Friend {
+            id: "f1".to_string(),
+            name: "TestFriend".to_string(),
+            notes: None,
+            avatars: vec![],
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+        db.insert_friend(&friend).unwrap();
+
+        let friends = db.get_friends().unwrap();
+        assert_eq!(friends.len(), 1);
+        assert_eq!(friends[0].name, "TestFriend");
+
+        db.update_friend_name("f1", "NewName").unwrap();
+        db.update_friend_notes("f1", Some("Best friend")).unwrap();
+
+        let friends = db.get_friends().unwrap();
+        assert_eq!(friends[0].name, "NewName");
+        assert_eq!(friends[0].notes.as_deref(), Some("Best friend"));
+
+        db.delete_friend("f1").unwrap();
+        let friends = db.get_friends().unwrap();
+        assert_eq!(friends.len(), 0);
+    }
+
+    #[test]
+    fn test_settings() {
+        let db = test_db();
+
+        // Default settings
+        let settings = db.get_settings().unwrap();
+        assert_eq!(settings.photo_folder, "");
+        assert_eq!(settings.theme, "dark");
+        assert!(settings.gpu_enabled);
+
+        db.set_setting("photo_folder", "/pictures/vrchat").unwrap();
+        db.set_setting("theme", "light").unwrap();
+        db.set_setting("gpu_enabled", "false").unwrap();
+
+        let settings = db.get_settings().unwrap();
+        assert_eq!(settings.photo_folder, "/pictures/vrchat");
+        assert_eq!(settings.theme, "light");
+        assert!(!settings.gpu_enabled);
+
+        // Overwrite setting
+        db.set_setting("theme", "dark").unwrap();
+        let settings = db.get_settings().unwrap();
+        assert_eq!(settings.theme, "dark");
+    }
+
+    #[test]
+    fn test_photos_without_caption() {
+        let db = test_db();
+        db.insert_photo(&make_photo("p1", "2025-06-10T12:00:00", None))
+            .unwrap();
+        let mut p2 = make_photo("p2", "2025-06-15T12:00:00", None);
+        p2.caption = Some("has caption".to_string());
+        db.insert_photo(&p2).unwrap();
+        db.insert_photo(&make_photo("p3", "2025-06-20T12:00:00", None))
+            .unwrap();
+
+        let without = db.get_photos_without_caption(10).unwrap();
+        assert_eq!(without.len(), 2);
+        // Should be ordered by datetime DESC
+        assert_eq!(without[0].id, "p3");
+        assert_eq!(without[1].id, "p1");
+    }
 }

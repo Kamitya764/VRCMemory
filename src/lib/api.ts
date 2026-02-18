@@ -251,3 +251,24 @@ export async function getSidecarStatus(): Promise<SidecarStatus> {
 export async function generateCaptions(batchSize?: number): Promise<number> {
   return invoke("generate_captions", { batchSize: batchSize ?? null });
 }
+
+// Filter commands
+export async function filterPhotos(
+  worldName?: string,
+  dateFrom?: string,
+  dateTo?: string,
+  offset = 0,
+  limit = 100,
+): Promise<SearchResult> {
+  return invoke("filter_photos", {
+    worldName: worldName ?? null,
+    dateFrom: dateFrom ?? null,
+    dateTo: dateTo ?? null,
+    offset,
+    limit,
+  });
+}
+
+export async function getWorldNames(): Promise<string[]> {
+  return invoke("get_world_names");
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { View } from "@/App";
 import type { Photo } from "@/lib/api";
-import { searchPhotos, getPhotos, deletePhotos, getAlbums, addPhotosToAlbum } from "@/lib/api";
+import { searchPhotos, getPhotos, deletePhotos, getAlbums, addPhotosToAlbum, filterPhotos, getWorldNames } from "@/lib/api";
 import type { Album } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
@@ -28,14 +28,44 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterWorld, setFilterWorld] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [worldNames, setWorldNames] = useState<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Debounced search
+  const hasActiveFilters = filterWorld || filterDateFrom || filterDateTo;
+
+  // Load world names for filter dropdown
+  useEffect(() => {
+    if (showFilters && worldNames.length === 0) {
+      getWorldNames().then(setWorldNames).catch(() => {});
+    }
+  }, [showFilters, worldNames.length]);
+
+  // Debounced search with filters
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (searchQuery.trim()) {
+    if (hasActiveFilters) {
+      debounceRef.current = setTimeout(() => {
+        filterPhotos(
+          filterWorld || undefined,
+          filterDateFrom || undefined,
+          filterDateTo || undefined,
+          0,
+          200,
+        )
+          .then((result) => {
+            setDisplayPhotos(result.photos);
+            setVisibleCount(PAGE_SIZE);
+            setHasMore(result.photos.length > PAGE_SIZE);
+          })
+          .catch(() => setDisplayPhotos(photos));
+      }, 300);
+    } else if (searchQuery.trim()) {
       debounceRef.current = setTimeout(() => {
         searchPhotos(searchQuery)
           .then((result) => {
@@ -54,7 +84,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [searchQuery, photos]);
+  }, [searchQuery, photos, hasActiveFilters, filterWorld, filterDateFrom, filterDateTo]);
 
   // Sort photos
   const sortedPhotos = (() => {
@@ -310,6 +340,22 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
             </button>
           )}
 
+          {/* Filter toggle */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`rounded border px-2 py-1 text-xs transition-colors ${
+              hasActiveFilters
+                ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+            }`}
+            title="フィルター"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" className="inline-block mr-1">
+              <path d="M1 2H11M3 6H9M5 10H7" strokeLinecap="round" />
+            </svg>
+            フィルター{hasActiveFilters ? " ●" : ""}
+          </button>
+
           {/* Sort dropdown */}
           <select
             value={sortMode}
@@ -323,6 +369,60 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
           </select>
         </div>
       </div>
+
+      {/* Filter panel */}
+      {showFilters && (
+        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-[var(--color-text-muted)]">ワールド</label>
+            <select
+              value={filterWorld}
+              onChange={(e) => setFilterWorld(e.target.value)}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text)] outline-none"
+            >
+              <option value="">すべて</option>
+              {worldNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-[var(--color-text-muted)]">開始日</label>
+            <input
+              type="date"
+              value={filterDateFrom}
+              onChange={(e) => setFilterDateFrom(e.target.value)}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text)] outline-none"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-[var(--color-text-muted)]">終了日</label>
+            <input
+              type="date"
+              value={filterDateTo}
+              onChange={(e) => setFilterDateTo(e.target.value)}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs text-[var(--color-text)] outline-none"
+            />
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                setFilterWorld("");
+                setFilterDateFrom("");
+                setFilterDateTo("");
+              }}
+              className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+            >
+              クリア
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Photo grid with date groups */}
       {groupPhotosByDate(visiblePhotos).map((group) => (
