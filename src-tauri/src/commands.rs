@@ -6,7 +6,7 @@ use tauri::{Manager, State};
 use crate::db::DbState;
 use crate::error::{AppError, AppResult};
 use crate::indexer::IndexerState;
-use crate::models::{Album, AppSettings, ExportData, Friend, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
+use crate::models::{Album, AppSettings, Avatar, Encounter, ExportData, Friend, FriendStats, ImportStats, IndexingStatus, Photo, SearchResult, WorldVisit};
 use crate::sidecar::SidecarState;
 
 #[tauri::command]
@@ -379,6 +379,69 @@ pub fn update_friend_name(
 ) -> AppResult<()> {
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     db.update_friend_name(&id, &name)
+}
+
+// Avatar commands
+
+#[tauri::command]
+pub fn add_avatar(
+    friend_id: String,
+    name: String,
+    db: State<DbState>,
+) -> AppResult<Avatar> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.insert_avatar(&friend_id, &name)
+}
+
+#[tauri::command]
+pub fn delete_avatar(id: String, db: State<DbState>) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.delete_avatar(&id)
+}
+
+#[tauri::command]
+pub fn add_avatar_reference(
+    avatar_id: String,
+    image_path: String,
+    db: State<DbState>,
+) -> AppResult<String> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.add_avatar_reference(&avatar_id, &image_path)
+}
+
+#[tauri::command]
+pub fn delete_avatar_reference(id: String, db: State<DbState>) -> AppResult<()> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.delete_avatar_reference(&id)
+}
+
+// Encounter commands
+
+/// Build encounters from world visit player lists
+#[tauri::command]
+pub fn build_encounters(db: State<DbState>) -> AppResult<usize> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.build_encounters()
+}
+
+/// Get encounters for a specific friend
+#[tauri::command]
+pub fn get_friend_encounters(
+    friend_id: String,
+    db: State<DbState>,
+) -> AppResult<Vec<Encounter>> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.get_friend_encounters(&friend_id)
+}
+
+/// Get stats for a specific friend
+#[tauri::command]
+pub fn get_friend_stats(
+    friend_id: String,
+    db: State<DbState>,
+) -> AppResult<FriendStats> {
+    let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
+    db.get_friend_stats(&friend_id)
 }
 
 /// Generate thumbnails for all photos

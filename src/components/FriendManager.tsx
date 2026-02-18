@@ -5,9 +5,12 @@ import {
   deleteFriend,
   updateFriendNotes,
   updateFriendName,
+  addAvatar,
+  deleteAvatar,
 } from "@/lib/api";
-import type { Friend } from "@/lib/api";
+import type { Friend, Avatar } from "@/lib/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import FriendProfile from "@/components/FriendProfile";
 import { showToast } from "@/lib/toast";
 
 function FriendManager() {
@@ -18,6 +21,7 @@ function FriendManager() {
   const [adding, setAdding] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Friend | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
 
   useEffect(() => {
     loadFriends();
@@ -92,6 +96,38 @@ function FriendManager() {
       showToast(`「${friend.name}」を削除しました`, "success");
     } catch {
       showToast("フレンドの削除に失敗しました", "error");
+    }
+  };
+
+  const handleAddAvatar = async (friendId: string, avatarName: string) => {
+    try {
+      const avatar = await addAvatar(friendId, avatarName);
+      setFriends((prev) =>
+        prev.map((f) =>
+          f.id === friendId
+            ? { ...f, avatars: [...f.avatars, avatar] }
+            : f,
+        ),
+      );
+      showToast("アバターを追加しました", "success");
+    } catch {
+      showToast("アバターの追加に失敗しました", "error");
+    }
+  };
+
+  const handleDeleteAvatar = async (friendId: string, avatarId: string) => {
+    try {
+      await deleteAvatar(avatarId);
+      setFriends((prev) =>
+        prev.map((f) =>
+          f.id === friendId
+            ? { ...f, avatars: f.avatars.filter((a) => a.id !== avatarId) }
+            : f,
+        ),
+      );
+      showToast("アバターを削除しました", "success");
+    } catch {
+      showToast("アバターの削除に失敗しました", "error");
     }
   };
 
@@ -178,16 +214,34 @@ function FriendManager() {
                   className="flex-1 text-left"
                 >
                   <h3 className="font-medium">{friend.name}</h3>
-                  {friend.notes && (
-                    <p className="text-xs text-[var(--color-text-muted)]">
-                      {friend.notes}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {friend.notes && (
+                      <p className="text-xs text-[var(--color-text-muted)]">
+                        {friend.notes}
+                      </p>
+                    )}
+                    {friend.avatars.length > 0 && (
+                      <span className="text-xs text-[var(--color-text-muted)]">
+                        {friend.avatars.length} アバター
+                      </span>
+                    )}
+                  </div>
                 </button>
 
                 <span className="text-xs text-[var(--color-text-muted)]">
                   {formatDate(friend.created_at)}
                 </span>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setProfileId(friend.id);
+                  }}
+                  className="rounded border border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                  title="プロフィール"
+                >
+                  詳細
+                </button>
 
                 <button
                   onClick={(e) => {
@@ -233,6 +287,13 @@ function FriendManager() {
                         }
                       />
                     </div>
+
+                    {/* Avatar section */}
+                    <AvatarSection
+                      friend={friend}
+                      onAdd={(name) => handleAddAvatar(friend.id, name)}
+                      onDelete={(avatarId) => handleDeleteAvatar(friend.id, avatarId)}
+                    />
                   </div>
                 </div>
               )}
@@ -257,6 +318,131 @@ function FriendManager() {
         }}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {profileId && (
+        <FriendProfile
+          friendId={profileId}
+          onClose={() => setProfileId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function AvatarSection({
+  friend,
+  onAdd,
+  onDelete,
+}: {
+  friend: Friend;
+  onAdd: (name: string) => void;
+  onDelete: (avatarId: string) => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [avatarName, setAvatarName] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const handleSubmit = () => {
+    const name = avatarName.trim();
+    if (!name) return;
+    onAdd(name);
+    setAvatarName("");
+    setShowForm(false);
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-[var(--color-text-muted)]">
+          アバター ({friend.avatars.length})
+        </span>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="text-xs text-[var(--color-primary)] transition-colors hover:underline"
+        >
+          + 追加
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="mt-1 flex gap-2">
+          <input
+            type="text"
+            value={avatarName}
+            onChange={(e) => setAvatarName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSubmit();
+              if (e.key === "Escape") setShowForm(false);
+            }}
+            placeholder="アバター名..."
+            className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-xs outline-none focus:border-[var(--color-primary)]"
+            autoFocus
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={!avatarName.trim()}
+            className="rounded bg-[var(--color-primary)] px-2 py-1 text-xs text-white disabled:opacity-50"
+          >
+            追加
+          </button>
+        </div>
+      )}
+
+      {friend.avatars.length > 0 && (
+        <div className="mt-1 space-y-1">
+          {friend.avatars.map((avatar) => (
+            <AvatarRow
+              key={avatar.id}
+              avatar={avatar}
+              onDelete={() => setDeleteId(avatar.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        title="アバターを削除"
+        message="このアバターを削除しますか？"
+        confirmLabel="削除"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteId) onDelete(deleteId);
+          setDeleteId(null);
+        }}
+        onCancel={() => setDeleteId(null)}
+      />
+    </div>
+  );
+}
+
+function AvatarRow({
+  avatar,
+  onDelete,
+}: {
+  avatar: Avatar;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--color-surface-hover)] text-xs">
+        {avatar.name.charAt(0)}
+      </div>
+      <span className="flex-1 truncate text-xs">{avatar.name}</span>
+      {avatar.reference_images.length > 0 && (
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {avatar.reference_images.length} 画像
+        </span>
+      )}
+      <button
+        onClick={onDelete}
+        className="rounded p-0.5 text-[var(--color-text-muted)] transition-colors hover:text-red-400"
+        title="削除"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   );
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use crate::error::AppResult;
-use crate::models::{Album, AlbumExport, AppSettings, ExportData, Friend, ImportStats, Photo, WorldVisit};
+use crate::models::{Album, AlbumExport, AppSettings, Avatar, Encounter, ExportData, Friend, FriendStats, ImportStats, Photo, WorldVisit};
 
 pub struct DbState(pub Mutex<Database>);
 
@@ -97,10 +97,21 @@ impl Database {
                 enabled INTEGER NOT NULL DEFAULT 1
             );
 
+            CREATE TABLE IF NOT EXISTS encounters (
+                id TEXT PRIMARY KEY,
+                friend_id TEXT NOT NULL,
+                world_visit_id TEXT NOT NULL,
+                met_at TEXT NOT NULL,
+                FOREIGN KEY (friend_id) REFERENCES friends(id) ON DELETE CASCADE,
+                FOREIGN KEY (world_visit_id) REFERENCES world_visits(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_photos_datetime ON photos(datetime);
             CREATE INDEX IF NOT EXISTS idx_photos_world_name ON photos(world_name);
             CREATE INDEX IF NOT EXISTS idx_world_visits_entered ON world_visits(entered_at);
             CREATE INDEX IF NOT EXISTS idx_avatars_friend ON avatars(friend_id);
+            CREATE INDEX IF NOT EXISTS idx_encounters_friend ON encounters(friend_id);
+            CREATE INDEX IF NOT EXISTS idx_encounters_visit ON encounters(world_visit_id);
             ",
         )?;
         Ok(())
@@ -245,7 +256,7 @@ impl Database {
             .conn
             .prepare("SELECT id, name, notes, created_at FROM friends ORDER BY name")?;
 
-        let friends = stmt
+        let mut friends = stmt
             .query_map([], |row| {
                 Ok(Friend {
                     id: row.get(0)?,
@@ -256,6 +267,11 @@ impl Database {
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+
+        // Load avatars for each friend
+        for friend in &mut friends {
+            friend.avatars = self.get_avatars_for_friend(&friend.id)?;
+        }
 
         Ok(friends)
     }
@@ -565,6 +581,197 @@ impl Database {
             params![name, id],
         )?;
         Ok(())
+    }
+
+    // Avatar operations
+
+    pub fn get_avatars_for_friend(&self, friend_id: &str) -> AppResult<Vec<Avatar>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, friend_id, name FROM avatars WHERE friend_id = ?1 ORDER BY created_at",
+        )?;
+
+        let avatars = stmt
+            .query_map(params![friend_id], |row| {
+                let avatar_id: String = row.get(0)?;
+                Ok((avatar_id, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<Result<Vec<(String, String, String)>, _>>()?;
+
+        let mut result = Vec::new();
+        for (avatar_id, fid, name) in avatars {
+            let mut ref_stmt = self.conn.prepare(
+                "SELECT image_path FROM avatar_references WHERE avatar_id = ?1",
+            )?;
+            let refs = ref_stmt
+                .query_map(params![avatar_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            result.push(Avatar {
+                id: avatar_id,
+                friend_id: fid,
+                name,
+                reference_images: refs,
+            });
+        }
+
+        Ok(result)
+    }
+
+    pub fn insert_avatar(&self, friend_id: &str, name: &str) -> AppResult<Avatar> {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO avatars (id, friend_id, name) VALUES (?1, ?2, ?3)",
+            params![id, friend_id, name],
+        )?;
+        Ok(Avatar {
+            id,
+            friend_id: friend_id.to_string(),
+            name: name.to_string(),
+            reference_images: vec![],
+        })
+    }
+
+    pub fn delete_avatar(&self, id: &str) -> AppResult<()> {
+        self.conn
+            .execute("DELETE FROM avatars WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn add_avatar_reference(&self, avatar_id: &str, image_path: &str) -> AppResult<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO avatar_references (id, avatar_id, image_path) VALUES (?1, ?2, ?3)",
+            params![id, avatar_id, image_path],
+        )?;
+        Ok(id)
+    }
+
+    pub fn delete_avatar_reference(&self, id: &str) -> AppResult<()> {
+        self.conn
+            .execute("DELETE FROM avatar_references WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // Encounter operations
+
+    /// Build encounters by matching friend names against world_visits.players
+    pub fn build_encounters(&self) -> AppResult<usize> {
+        let friends = self.get_friends()?;
+        if friends.is_empty() {
+            return Ok(0);
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, world_name, world_id, entered_at, players FROM world_visits",
+        )?;
+
+        let visits: Vec<(String, String, String, String, Vec<String>)> = stmt
+            .query_map([], |row| {
+                let players_str: String = row.get(4)?;
+                let players: Vec<String> =
+                    serde_json::from_str(&players_str).unwrap_or_default();
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, players))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut count = 0;
+
+        for (visit_id, _world_name, _world_id, entered_at, players) in &visits {
+            for friend in &friends {
+                if players.iter().any(|p| p == &friend.name) {
+                    // Check if encounter already exists
+                    let exists: bool = self.conn.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM encounters WHERE friend_id = ?1 AND world_visit_id = ?2)",
+                        params![friend.id, visit_id],
+                        |row| row.get(0),
+                    )?;
+
+                    if !exists {
+                        let id = uuid::Uuid::new_v4().to_string();
+                        self.conn.execute(
+                            "INSERT INTO encounters (id, friend_id, world_visit_id, met_at) VALUES (?1, ?2, ?3, ?4)",
+                            params![id, friend.id, visit_id, entered_at],
+                        )?;
+                        count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Get encounters for a specific friend with world info
+    pub fn get_friend_encounters(&self, friend_id: &str) -> AppResult<Vec<Encounter>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.friend_id, f.name, wv.world_name, wv.world_id, e.world_visit_id, e.met_at
+             FROM encounters e
+             JOIN friends f ON f.id = e.friend_id
+             JOIN world_visits wv ON wv.id = e.world_visit_id
+             WHERE e.friend_id = ?1
+             ORDER BY e.met_at DESC",
+        )?;
+
+        let encounters = stmt
+            .query_map(params![friend_id], |row| {
+                Ok(Encounter {
+                    id: row.get(0)?,
+                    friend_id: row.get(1)?,
+                    friend_name: row.get(2)?,
+                    world_name: row.get(3)?,
+                    world_id: row.get(4)?,
+                    world_visit_id: row.get(5)?,
+                    met_at: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(encounters)
+    }
+
+    /// Get stats for a specific friend
+    pub fn get_friend_stats(&self, friend_id: &str) -> AppResult<FriendStats> {
+        let friend_name: String = self.conn.query_row(
+            "SELECT name FROM friends WHERE id = ?1",
+            params![friend_id],
+            |row| row.get(0),
+        )?;
+
+        let encounter_count: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM encounters WHERE friend_id = ?1",
+            params![friend_id],
+            |row| row.get(0),
+        )?;
+
+        let last_met: Option<String> = self.conn.query_row(
+            "SELECT MAX(met_at) FROM encounters WHERE friend_id = ?1",
+            params![friend_id],
+            |row| row.get(0),
+        ).ok().flatten();
+
+        let mut world_stmt = self.conn.prepare(
+            "SELECT wv.world_name, COUNT(*) as cnt
+             FROM encounters e
+             JOIN world_visits wv ON wv.id = e.world_visit_id
+             WHERE e.friend_id = ?1
+             GROUP BY wv.world_name
+             ORDER BY cnt DESC
+             LIMIT 5",
+        )?;
+
+        let top_worlds: Vec<(String, usize)> = world_stmt
+            .query_map(params![friend_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(FriendStats {
+            friend_id: friend_id.to_string(),
+            friend_name,
+            encounter_count,
+            last_met,
+            top_worlds,
+        })
     }
 
     // Album operations

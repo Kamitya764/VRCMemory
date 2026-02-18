@@ -105,6 +105,13 @@ pub fn run() {
             commands::index_photos_vectors,
             commands::index_photos_text,
             commands::get_search_status,
+            commands::add_avatar,
+            commands::delete_avatar,
+            commands::add_avatar_reference,
+            commands::delete_avatar_reference,
+            commands::build_encounters,
+            commands::get_friend_encounters,
+            commands::get_friend_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

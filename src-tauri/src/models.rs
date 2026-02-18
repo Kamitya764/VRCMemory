@@ -110,3 +110,23 @@ pub struct ImportStats {
     pub world_visits_imported: usize,
     pub albums_imported: usize,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Encounter {
+    pub id: String,
+    pub friend_id: String,
+    pub friend_name: String,
+    pub world_name: String,
+    pub world_id: String,
+    pub world_visit_id: String,
+    pub met_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriendStats {
+    pub friend_id: String,
+    pub friend_name: String,
+    pub encounter_count: usize,
+    pub last_met: Option<String>,
+    pub top_worlds: Vec<(String, usize)>,
+}

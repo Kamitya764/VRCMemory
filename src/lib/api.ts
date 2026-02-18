@@ -193,6 +193,64 @@ export async function updateFriendName(
   return invoke("update_friend_name", { id, name });
 }
 
+// Avatar commands
+export async function addAvatar(
+  friendId: string,
+  name: string,
+): Promise<Avatar> {
+  return invoke("add_avatar", { friendId, name });
+}
+
+export async function deleteAvatar(id: string): Promise<void> {
+  return invoke("delete_avatar", { id });
+}
+
+export async function addAvatarReference(
+  avatarId: string,
+  imagePath: string,
+): Promise<string> {
+  return invoke("add_avatar_reference", { avatarId, imagePath });
+}
+
+export async function deleteAvatarReference(id: string): Promise<void> {
+  return invoke("delete_avatar_reference", { id });
+}
+
+// Encounter commands
+export interface Encounter {
+  id: string;
+  friend_id: string;
+  friend_name: string;
+  world_name: string;
+  world_id: string;
+  world_visit_id: string;
+  met_at: string;
+}
+
+export interface FriendStats {
+  friend_id: string;
+  friend_name: string;
+  encounter_count: number;
+  last_met: string | null;
+  top_worlds: [string, number][];
+}
+
+export async function buildEncounters(): Promise<number> {
+  return invoke("build_encounters");
+}
+
+export async function getFriendEncounters(
+  friendId: string,
+): Promise<Encounter[]> {
+  return invoke("get_friend_encounters", { friendId });
+}
+
+export async function getFriendStats(
+  friendId: string,
+): Promise<FriendStats> {
+  return invoke("get_friend_stats", { friendId });
+}
+
 // Settings commands
 export async function getSettings(): Promise<AppSettings> {
   return invoke("get_settings");
