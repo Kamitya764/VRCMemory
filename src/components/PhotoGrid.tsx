@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { View } from "@/App";
 import type { Photo } from "@/lib/api";
 import { searchPhotos, getPhotos, deletePhotos, getAlbums, addPhotosToAlbum, filterPhotos, getWorldNames, aiSearch } from "@/lib/api";
@@ -109,7 +109,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   }, [searchQuery, photos, hasActiveFilters, filterWorld, filterDateFrom, filterDateTo]);
 
   // Sort photos
-  const sortedPhotos = (() => {
+  const sortedPhotos = useMemo(() => {
     let filtered = displayPhotos;
     if (view === "recent") {
       const weekAgo = new Date();
@@ -134,9 +134,13 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
         break;
     }
     return sorted;
-  })();
+  }, [displayPhotos, view, sortMode]);
 
-  const visiblePhotos = sortedPhotos.slice(0, visibleCount);
+  const visiblePhotos = useMemo(() => sortedPhotos.slice(0, visibleCount), [sortedPhotos, visibleCount]);
+
+  const dateGroups = useMemo(() => groupPhotosByDate(visiblePhotos), [visiblePhotos]);
+
+  const photoIds = useMemo(() => visiblePhotos.map((p) => p.id), [visiblePhotos]);
 
   // IntersectionObserver for infinite scroll
   useEffect(() => {
@@ -449,7 +453,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
       )}
 
       {/* Photo grid with date groups */}
-      {groupPhotosByDate(visiblePhotos).map((group) => (
+      {dateGroups.map((group) => (
         <div key={group.date} className="mb-6">
           <h3 className="mb-2 text-sm font-medium text-[var(--color-text-muted)]">
             {group.label}
@@ -535,7 +539,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
 
       <PhotoDetail
         photoId={selectedPhotoId}
-        photoIds={visiblePhotos.map((p) => p.id)}
+        photoIds={photoIds}
         onClose={() => setSelectedPhotoId(null)}
         onNavigate={setSelectedPhotoId}
       />

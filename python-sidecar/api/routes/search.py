@@ -3,45 +3,17 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from core.embed import EmbeddingEngine
-from core.text_search import TextSearch
+from core.instances import get_embedding_engine, get_vector_store, get_text_search
 from core.utils import validate_image_path
-from core.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_store: VectorStore | None = None
-_embed: EmbeddingEngine | None = None
-_text_search: TextSearch | None = None
-
-
-def get_store() -> VectorStore:
-    global _store
-    if _store is None:
-        _store = VectorStore()
-    return _store
-
-
-def get_embed() -> EmbeddingEngine:
-    global _embed
-    if _embed is None:
-        _embed = EmbeddingEngine()
-    return _embed
-
-
-def get_text_search() -> TextSearch | None:
-    global _text_search
-    if _text_search is None:
-        try:
-            _text_search = TextSearch()
-        except Exception:
-            logger.warning("Meilisearch is not available, text search disabled")
-            return None
-    return _text_search
+MAX_BATCH_SIZE = 100
+MAX_SEARCH_LIMIT = 200
 
 
 # --- Request / Response models ---
@@ -53,7 +25,7 @@ class IndexPhotoRequest(BaseModel):
 
 
 class IndexBatchRequest(BaseModel):
-    photos: list[IndexPhotoRequest]
+    photos: list[IndexPhotoRequest] = Field(..., max_length=MAX_BATCH_SIZE)
 
 
 class IndexResponse(BaseModel):
@@ -65,13 +37,13 @@ class TextIndexRequest(BaseModel):
     """Index photo metadata for text search."""
     id: str
     caption: str | None = None
-    tags: list[str] = []
+    tags: list[str] = Field(default_factory=list, max_length=50)
     world_name: str | None = None
     filename: str | None = None
 
 
 class TextIndexBatchRequest(BaseModel):
-    documents: list[TextIndexRequest]
+    documents: list[TextIndexRequest] = Field(..., max_length=MAX_BATCH_SIZE)
 
 
 class TextIndexResponse(BaseModel):
@@ -79,21 +51,21 @@ class TextIndexResponse(BaseModel):
 
 
 class SearchByTextRequest(BaseModel):
-    query: str
-    limit: int = 20
+    query: str = Field(..., min_length=1)
+    limit: int = Field(default=20, ge=1, le=MAX_SEARCH_LIMIT)
 
 
 class SearchByImageRequest(BaseModel):
     image_path: str
-    limit: int = 20
+    limit: int = Field(default=20, ge=1, le=MAX_SEARCH_LIMIT)
 
 
 class HybridSearchRequest(BaseModel):
     """Hybrid search combining vector similarity and text search."""
-    query: str
-    limit: int = 20
-    vector_weight: float = 0.5
-    text_weight: float = 0.5
+    query: str = Field(..., min_length=1)
+    limit: int = Field(default=20, ge=1, le=MAX_SEARCH_LIMIT)
+    vector_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    text_weight: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class SearchResult(BaseModel):
@@ -116,9 +88,9 @@ class StoreStatusResponse(BaseModel):
 
 
 @router.post("/index", response_model=IndexResponse)
-async def index_photo(request: IndexPhotoRequest):
+def index_photo(request: IndexPhotoRequest):
     """Generate CLIP embedding for a photo and store in vector DB."""
-    store = get_store()
+    store = get_vector_store()
 
     if store.has_photo(request.photo_id):
         return IndexResponse(indexed=0, skipped=1)
@@ -128,7 +100,7 @@ async def index_photo(request: IndexPhotoRequest):
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    engine = get_embed()
+    engine = get_embedding_engine()
     with open(validated, "rb") as f:
         vector = engine.embed_image(f.read())
 
@@ -137,10 +109,10 @@ async def index_photo(request: IndexPhotoRequest):
 
 
 @router.post("/index/batch", response_model=IndexResponse)
-async def index_batch(request: IndexBatchRequest):
+def index_batch(request: IndexBatchRequest):
     """Generate CLIP embeddings for multiple photos and store them."""
-    store = get_store()
-    engine = get_embed()
+    store = get_vector_store()
+    engine = get_embedding_engine()
 
     items = []
     skipped = 0
@@ -154,7 +126,8 @@ async def index_batch(request: IndexBatchRequest):
             with open(validated, "rb") as f:
                 vector = engine.embed_image(f.read())
             items.append({"photo_id": photo.photo_id, "vector": vector})
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to index photo {photo.image_path}: {e}")
             skipped += 1
 
     indexed = store.add_batch(items)
@@ -162,7 +135,7 @@ async def index_batch(request: IndexBatchRequest):
 
 
 @router.post("/index/text", response_model=TextIndexResponse)
-async def index_text(request: TextIndexBatchRequest):
+def index_text(request: TextIndexBatchRequest):
     """Index photo metadata in Meilisearch for text search."""
     ts = get_text_search()
     if ts is None:
@@ -186,14 +159,14 @@ async def index_text(request: TextIndexBatchRequest):
 
 
 @router.post("/query", response_model=SearchResponse)
-async def search_by_text(request: SearchByTextRequest):
+def search_by_text(request: SearchByTextRequest):
     """Search photos by text query using CLIP text embedding.
 
     The text is embedded via Japanese CLIP and compared against
     stored image embeddings for cross-modal retrieval.
     """
-    store = get_store()
-    engine = get_embed()
+    store = get_vector_store()
+    engine = get_embedding_engine()
 
     text_vector = engine.embed_text_clip(request.query)
     results = store.search(text_vector, limit=request.limit)
@@ -205,7 +178,7 @@ async def search_by_text(request: SearchByTextRequest):
 
 
 @router.post("/text", response_model=SearchResponse)
-async def search_text_only(request: SearchByTextRequest):
+def search_text_only(request: SearchByTextRequest):
     """Search photos by text query using Meilisearch full-text search."""
     ts = get_text_search()
     if ts is None:
@@ -219,7 +192,7 @@ async def search_text_only(request: SearchByTextRequest):
 
 
 @router.post("/hybrid", response_model=SearchResponse)
-async def hybrid_search(request: HybridSearchRequest):
+def hybrid_search(request: HybridSearchRequest):
     """Hybrid search: combine CLIP vector search and Meilisearch text search.
 
     Results are merged using weighted reciprocal rank fusion (RRF).
@@ -229,8 +202,8 @@ async def hybrid_search(request: HybridSearchRequest):
 
     # Vector search (CLIP cross-modal)
     try:
-        store = get_store()
-        engine = get_embed()
+        store = get_vector_store()
+        engine = get_embedding_engine()
         text_vector = engine.embed_text_clip(request.query)
         vector_results = store.search(text_vector, limit=request.limit * 2)
     except Exception:
@@ -260,9 +233,9 @@ async def hybrid_search(request: HybridSearchRequest):
 
 
 @router.post("/similar", response_model=SearchResponse)
-async def search_similar(request: SearchByImageRequest):
+def search_similar(request: SearchByImageRequest):
     """Find photos similar to a given image."""
-    engine = get_embed()
+    engine = get_embedding_engine()
 
     try:
         validated = validate_image_path(request.image_path)
@@ -272,7 +245,7 @@ async def search_similar(request: SearchByImageRequest):
     with open(validated, "rb") as f:
         image_vector = engine.embed_image(f.read())
 
-    store = get_store()
+    store = get_vector_store()
     results = store.search(image_vector, limit=request.limit)
 
     return SearchResponse(
@@ -282,9 +255,9 @@ async def search_similar(request: SearchByImageRequest):
 
 
 @router.get("/status", response_model=StoreStatusResponse)
-async def store_status():
+def store_status():
     """Return vector store and text search status."""
-    store = get_store()
+    store = get_vector_store()
     ts = get_text_search()
 
     meili_available = False
@@ -294,7 +267,7 @@ async def store_status():
             meili_available = ts.is_available()
             total_docs = ts.count()
         except Exception:
-            pass
+            logger.warning("Failed to get text search status", exc_info=True)
 
     return StoreStatusResponse(
         total_vectors=store.count(),

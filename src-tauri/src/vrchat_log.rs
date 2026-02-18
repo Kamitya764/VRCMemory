@@ -1,8 +1,18 @@
 use regex::Regex;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use crate::error::{AppError, AppResult};
+
+static WORLD_ID_RE: OnceLock<Regex> = OnceLock::new();
+
+fn world_id_regex() -> &'static Regex {
+    WORLD_ID_RE.get_or_init(|| {
+        Regex::new(r"(wrld_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+            .expect("invalid world ID regex")
+    })
+}
 
 /// Represents a parsed VRChat log entry
 #[derive(Debug, Clone)]
@@ -135,12 +145,8 @@ impl VRChatLogParser {
     }
 
     fn parse_room_info(info: &str) -> (String, String, String, InstanceType) {
-        // Try to extract world ID (wrld_...)
-        let world_id_re =
-            Regex::new(r"(wrld_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
-                .unwrap();
-
-        let world_id = world_id_re
+        // Try to extract world ID (wrld_...) using cached regex
+        let world_id = world_id_regex()
             .captures(info)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())

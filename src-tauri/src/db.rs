@@ -14,6 +14,8 @@ pub struct Database {
 impl Database {
     pub fn new(path: &Path) -> AppResult<Self> {
         let conn = Connection::open(path)?;
+        // Enable WAL mode for concurrent read performance
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         let db = Self { conn };
         db.initialize_tables()?;
         Ok(db)
@@ -46,7 +48,8 @@ impl Database {
                 players TEXT DEFAULT '[]',
                 instance_type TEXT DEFAULT 'unknown',
                 rating INTEGER,
-                notes TEXT
+                notes TEXT,
+                UNIQUE(world_id, entered_at)
             );
 
             CREATE TABLE IF NOT EXISTS friends (
@@ -602,12 +605,17 @@ impl Database {
     }
 
     pub fn delete_photos(&self, ids: &[String]) -> AppResult<usize> {
-        let mut deleted = 0;
-        for id in ids {
-            self.conn
-                .execute("DELETE FROM photos WHERE id = ?1", params![id])?;
-            deleted += 1;
+        if ids.is_empty() {
+            return Ok(0);
         }
+        let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
+        let sql = format!(
+            "DELETE FROM photos WHERE id IN ({})",
+            placeholders.join(", ")
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let deleted = self.conn.execute(&sql, params.as_slice())?;
         Ok(deleted)
     }
 
@@ -757,31 +765,44 @@ impl Database {
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
+        // Use a transaction for batch inserts
+        self.conn.execute_batch("BEGIN")?;
         let mut count = 0;
 
-        for (visit_id, _world_name, _world_id, entered_at, players) in &visits {
-            for friend in &friends {
-                if players.iter().any(|p| p == &friend.name) {
-                    // Check if encounter already exists
-                    let exists: bool = self.conn.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM encounters WHERE friend_id = ?1 AND world_visit_id = ?2)",
-                        params![friend.id, visit_id],
-                        |row| row.get(0),
-                    )?;
-
-                    if !exists {
-                        let id = uuid::Uuid::new_v4().to_string();
-                        self.conn.execute(
-                            "INSERT INTO encounters (id, friend_id, world_visit_id, met_at) VALUES (?1, ?2, ?3, ?4)",
-                            params![id, friend.id, visit_id, entered_at],
+        let result = (|| -> AppResult<usize> {
+            for (visit_id, _world_name, _world_id, entered_at, players) in &visits {
+                for friend in &friends {
+                    if players.iter().any(|p| p == &friend.name) {
+                        let exists: bool = self.conn.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM encounters WHERE friend_id = ?1 AND world_visit_id = ?2)",
+                            params![friend.id, visit_id],
+                            |row| row.get(0),
                         )?;
-                        count += 1;
+
+                        if !exists {
+                            let id = uuid::Uuid::new_v4().to_string();
+                            self.conn.execute(
+                                "INSERT INTO encounters (id, friend_id, world_visit_id, met_at) VALUES (?1, ?2, ?3, ?4)",
+                                params![id, friend.id, visit_id, entered_at],
+                            )?;
+                            count += 1;
+                        }
                     }
                 }
             }
-        }
+            Ok(count)
+        })();
 
-        Ok(count)
+        match result {
+            Ok(c) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(c)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
     }
 
     /// Get encounters for a specific friend with world info
