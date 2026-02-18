@@ -395,32 +395,41 @@ impl Database {
     }
 
     pub fn find_duplicate_groups(&self) -> AppResult<Vec<DuplicateGroup>> {
+        // Single query using subquery to avoid N+1
         let mut stmt = self.conn.prepare(
-            "SELECT image_hash, COUNT(*) as cnt FROM photos
-             WHERE image_hash IS NOT NULL
-             GROUP BY image_hash HAVING cnt > 1
-             ORDER BY cnt DESC",
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
+             FROM photos
+             WHERE image_hash IN (
+                 SELECT image_hash FROM photos
+                 WHERE image_hash IS NOT NULL
+                 GROUP BY image_hash HAVING COUNT(*) > 1
+             )
+             ORDER BY image_hash, datetime",
         )?;
 
-        let hashes: Vec<String> = stmt
-            .query_map([], |row| row.get(0))?
+        let photos = stmt
+            .query_map([], Self::row_to_photo)?
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut groups = Vec::new();
-        for hash in hashes {
-            let mut photo_stmt = self.conn.prepare(
-                "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
-                 FROM photos WHERE image_hash = ?1 ORDER BY datetime",
-            )?;
-            let photos = photo_stmt
-                .query_map(params![hash], Self::row_to_photo)?
-                .collect::<Result<Vec<_>, _>>()?;
+        // Group photos by hash in Rust
+        let mut groups: Vec<DuplicateGroup> = Vec::new();
+        let mut current_hash: Option<String> = None;
 
-            groups.push(DuplicateGroup {
-                hash: hash.clone(),
-                photos,
-            });
+        for photo in photos {
+            let hash = photo.image_hash.clone().unwrap_or_default();
+            if current_hash.as_deref() != Some(&hash) {
+                groups.push(DuplicateGroup {
+                    hash: hash.clone(),
+                    photos: vec![photo],
+                });
+                current_hash = Some(hash);
+            } else if let Some(last) = groups.last_mut() {
+                last.photos.push(photo);
+            }
         }
+
+        // Sort by group size descending
+        groups.sort_by(|a, b| b.photos.len().cmp(&a.photos.len()));
 
         Ok(groups)
     }
@@ -605,32 +614,44 @@ impl Database {
     // Avatar operations
 
     pub fn get_avatars_for_friend(&self, friend_id: &str) -> AppResult<Vec<Avatar>> {
+        // Single query using LEFT JOIN to avoid N+1
         let mut stmt = self.conn.prepare(
-            "SELECT id, friend_id, name FROM avatars WHERE friend_id = ?1 ORDER BY created_at",
+            "SELECT a.id, a.friend_id, a.name, ar.image_path
+             FROM avatars a
+             LEFT JOIN avatar_references ar ON a.id = ar.avatar_id
+             WHERE a.friend_id = ?1
+             ORDER BY a.created_at, a.id",
         )?;
 
-        let avatars = stmt
+        let rows = stmt
             .query_map(params![friend_id], |row| {
-                let avatar_id: String = row.get(0)?;
-                Ok((avatar_id, row.get(1)?, row.get(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
             })?
-            .collect::<Result<Vec<(String, String, String)>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let mut result = Vec::new();
-        for (avatar_id, fid, name) in avatars {
-            let mut ref_stmt = self.conn.prepare(
-                "SELECT image_path FROM avatar_references WHERE avatar_id = ?1",
-            )?;
-            let refs = ref_stmt
-                .query_map(params![avatar_id], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
+        // Group rows by avatar in Rust
+        let mut result: Vec<Avatar> = Vec::new();
+        let mut current_id: Option<String> = None;
 
-            result.push(Avatar {
-                id: avatar_id,
-                friend_id: fid,
-                name,
-                reference_images: refs,
-            });
+        for (avatar_id, fid, name, image_path) in rows {
+            if current_id.as_deref() != Some(&avatar_id) {
+                result.push(Avatar {
+                    id: avatar_id.clone(),
+                    friend_id: fid,
+                    name,
+                    reference_images: image_path.into_iter().collect(),
+                });
+                current_id = Some(avatar_id);
+            } else if let Some(last) = result.last_mut() {
+                if let Some(path) = image_path {
+                    last.reference_images.push(path);
+                }
+            }
         }
 
         Ok(result)

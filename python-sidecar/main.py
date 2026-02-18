@@ -31,8 +31,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:1420", "tauri://localhost"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 # Register routes
@@ -47,10 +47,12 @@ app.include_router(dedup.router, prefix="/api/dedup", tags=["dedup"])
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    import os
+    is_dev = os.environ.get("VRCMEMORY_ENV", "development") == "development"
     uvicorn.run(
         "main:app",
         host="127.0.0.1",
         port=8765,
-        reload=True,
+        reload=is_dev,
         log_level="info",
     )

@@ -267,7 +267,7 @@ pub async fn generate_captions(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<usize> {
-    let limit = batch_size.unwrap_or(10);
+    let limit = batch_size.unwrap_or(10).min(500);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
@@ -592,17 +592,30 @@ pub fn get_world_history_filtered(
     db.get_world_history_filtered(date_from.as_deref(), date_to.as_deref())
 }
 
+/// Validate that a file path has an allowed extension and no path traversal
+fn validate_export_path(path: &str, allowed_ext: &str) -> AppResult<PathBuf> {
+    if path.contains("..") {
+        return Err(AppError::Parse("Path traversal detected".to_string()));
+    }
+    let p = PathBuf::from(path);
+    match p.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case(allowed_ext) => Ok(p),
+        _ => Err(AppError::Parse(format!("File must have .{} extension", allowed_ext))),
+    }
+}
+
 /// Export all user data to a JSON file
 #[tauri::command]
 pub fn export_data_to_file(
     path: String,
     db: State<DbState>,
 ) -> AppResult<()> {
+    let validated_path = validate_export_path(&path, "json")?;
     let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
     let data = db.export_all_data()?;
     let json = serde_json::to_string_pretty(&data)
         .map_err(|e| AppError::Parse(e.to_string()))?;
-    std::fs::write(&path, json)
+    std::fs::write(&validated_path, json)
         .map_err(|e| AppError::Parse(format!("Failed to write file: {}", e)))?;
     Ok(())
 }
@@ -613,7 +626,8 @@ pub fn import_data_from_file(
     path: String,
     db: State<DbState>,
 ) -> AppResult<ImportStats> {
-    let json = std::fs::read_to_string(&path)
+    let validated_path = validate_export_path(&path, "json")?;
+    let json = std::fs::read_to_string(&validated_path)
         .map_err(|e| AppError::Parse(format!("Failed to read file: {}", e)))?;
     let data: ExportData = serde_json::from_str(&json)
         .map_err(|e| AppError::Parse(format!("Invalid data format: {}", e)))?;
@@ -630,7 +644,7 @@ pub async fn generate_ocr(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<usize> {
-    let limit = batch_size.unwrap_or(20);
+    let limit = batch_size.unwrap_or(20).min(500);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
@@ -669,7 +683,7 @@ pub async fn compute_hashes(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<usize> {
-    let limit = batch_size.unwrap_or(50);
+    let limit = batch_size.unwrap_or(50).min(1000);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
@@ -782,7 +796,7 @@ pub async fn index_photos_vectors(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<serde_json::Value> {
-    let limit = batch_size.unwrap_or(50);
+    let limit = batch_size.unwrap_or(50).min(500);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;
@@ -817,7 +831,7 @@ pub async fn index_photos_text(
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<serde_json::Value> {
-    let limit = batch_size.unwrap_or(100);
+    let limit = batch_size.unwrap_or(100).min(1000);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Parse(e.to_string()))?;

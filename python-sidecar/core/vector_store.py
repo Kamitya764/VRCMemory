@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 
+from core.utils import escape_filter_value
+
 logger = logging.getLogger(__name__)
 
 VECTOR_DIM = 512  # rinna/japanese-clip-vit-b-16 output dimension
@@ -98,7 +100,8 @@ class VectorStore:
     def delete(self, photo_id: str) -> None:
         """Delete a photo embedding."""
         table = self._get_or_create_table()
-        table.delete(f'photo_id = "{photo_id}"')
+        safe_id = escape_filter_value(photo_id)
+        table.delete(f'photo_id = "{safe_id}"')
 
     def count(self) -> int:
         """Return the number of stored embeddings."""
@@ -108,5 +111,6 @@ class VectorStore:
     def has_photo(self, photo_id: str) -> bool:
         """Check if a photo is already indexed."""
         table = self._get_or_create_table()
-        results = table.search().where(f'photo_id = "{photo_id}"').limit(1).to_list()
+        safe_id = escape_filter_value(photo_id)
+        results = table.search().where(f'photo_id = "{safe_id}"').limit(1).to_list()
         return len(results) > 0

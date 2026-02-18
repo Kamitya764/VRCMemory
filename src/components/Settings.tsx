@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   getSettings,
   updateSettings,
@@ -48,6 +48,17 @@ function Settings() {
   const [loadingDuplicates, setLoadingDuplicates] = useState(false);
   const [suggestions, setSuggestions] = useState<AutoAlbumSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const indexPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (indexPollRef.current) {
+        clearInterval(indexPollRef.current);
+        indexPollRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     getSettings()
@@ -94,18 +105,25 @@ function Settings() {
     setIndexStatus("インデックスを開始中...");
     try {
       await startIndexing();
-      const poll = setInterval(async () => {
+      if (indexPollRef.current) clearInterval(indexPollRef.current);
+      indexPollRef.current = setInterval(async () => {
         try {
           const status = await getIndexingStatus();
           setIndexStatus(`処理中: ${status.processed}/${status.total}`);
           if (!status.is_running) {
-            clearInterval(poll);
+            if (indexPollRef.current) {
+              clearInterval(indexPollRef.current);
+              indexPollRef.current = null;
+            }
             setIndexing(false);
             setIndexStatus(`完了: ${status.processed} 件を処理しました`);
             showToast(`${status.processed} 件を処理しました`, "success");
           }
         } catch {
-          clearInterval(poll);
+          if (indexPollRef.current) {
+            clearInterval(indexPollRef.current);
+            indexPollRef.current = null;
+          }
           setIndexing(false);
         }
       }, 1000);

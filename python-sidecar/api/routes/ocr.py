@@ -4,6 +4,7 @@ from fastapi import APIRouter, UploadFile, File
 from pydantic import BaseModel
 
 from core.ocr import WorldNameOCR
+from core.utils import validate_image_path
 
 router = APIRouter()
 
@@ -54,8 +55,11 @@ async def ocr_batch(request: OcrBatchRequest):
 
     for path in request.image_paths:
         try:
-            text = ocr_engine.read_full_image(path)
+            validated = validate_image_path(path)
+            text = ocr_engine.read_full_image(str(validated))
             results.append(OcrResultItem(path=path, text=text, error=None))
+        except (ValueError, FileNotFoundError) as e:
+            results.append(OcrResultItem(path=path, text=None, error=str(e)))
         except Exception as e:
             results.append(OcrResultItem(path=path, text=None, error=str(e)))
 

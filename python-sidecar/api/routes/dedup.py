@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from core.dedup import ImageHasher
+from core.utils import validate_image_path
 
 router = APIRouter()
 
@@ -39,8 +40,11 @@ async def hash_batch(request: HashBatchRequest):
 
     for path in request.image_paths:
         try:
-            h = hasher.compute_hash(path)
+            validated = validate_image_path(path)
+            h = hasher.compute_hash(str(validated))
             results.append(HashResultItem(path=path, hash=h, error=None))
+        except (ValueError, FileNotFoundError) as e:
+            results.append(HashResultItem(path=path, hash=None, error=str(e)))
         except Exception as e:
             results.append(HashResultItem(path=path, hash=None, error=str(e)))
 

@@ -1,9 +1,10 @@
 """Embedding endpoints for text and image vectors."""
 
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from core.embed import EmbeddingEngine
+from core.utils import validate_image_path
 
 router = APIRouter()
 
@@ -56,7 +57,11 @@ async def batch_embed_images(request: BatchImageEmbedRequest):
     engine = get_engine()
     vectors = []
     for path in request.image_paths:
-        with open(path, "rb") as f:
+        try:
+            validated = validate_image_path(path)
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        with open(validated, "rb") as f:
             vector = engine.embed_image(f.read())
         vectors.append(vector)
     return EmbedResponse(

@@ -8,6 +8,8 @@ import logging
 
 import meilisearch
 
+from core.utils import escape_filter_value
+
 logger = logging.getLogger(__name__)
 
 MEILI_URL = "http://127.0.0.1:7700"
@@ -87,10 +89,10 @@ class TextSearch:
 
         filters = []
         if world_name:
-            filters.append(f'world_name = "{world_name}"')
+            filters.append(f'world_name = "{escape_filter_value(world_name)}"')
         if tags:
             for tag in tags:
-                filters.append(f'tags = "{tag}"')
+                filters.append(f'tags = "{escape_filter_value(tag)}"')
         if filters:
             params["filter"] = " AND ".join(filters)
 

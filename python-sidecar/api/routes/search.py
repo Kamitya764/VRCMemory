@@ -2,11 +2,12 @@
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from core.embed import EmbeddingEngine
 from core.text_search import TextSearch
+from core.utils import validate_image_path
 from core.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -122,8 +123,13 @@ async def index_photo(request: IndexPhotoRequest):
     if store.has_photo(request.photo_id):
         return IndexResponse(indexed=0, skipped=1)
 
+    try:
+        validated = validate_image_path(request.image_path)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     engine = get_embed()
-    with open(request.image_path, "rb") as f:
+    with open(validated, "rb") as f:
         vector = engine.embed_image(f.read())
 
     store.add(request.photo_id, vector)
@@ -144,7 +150,8 @@ async def index_batch(request: IndexBatchRequest):
             skipped += 1
             continue
         try:
-            with open(photo.image_path, "rb") as f:
+            validated = validate_image_path(photo.image_path)
+            with open(validated, "rb") as f:
                 vector = engine.embed_image(f.read())
             items.append({"photo_id": photo.photo_id, "vector": vector})
         except Exception:
@@ -257,7 +264,12 @@ async def search_similar(request: SearchByImageRequest):
     """Find photos similar to a given image."""
     engine = get_embed()
 
-    with open(request.image_path, "rb") as f:
+    try:
+        validated = validate_image_path(request.image_path)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with open(validated, "rb") as f:
         image_vector = engine.embed_image(f.read())
 
     store = get_store()
