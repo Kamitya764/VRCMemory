@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+
+# Tauri
+src-tauri/target/
+
+# Python
+python-sidecar/__pycache__/
+python-sidecar/.venv/
+python-sidecar/models/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Data (user-specific)
+*.db
+*.lance/
+
+# Meilisearch data
+data.ms/
