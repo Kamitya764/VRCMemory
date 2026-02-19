@@ -30,8 +30,11 @@ class ImageHasher:
             import imagehash
 
             img = Image.open(image_path)
-            h = imagehash.average_hash(img, hash_size=self.hash_size)
-            return str(h)
+            try:
+                h = imagehash.average_hash(img, hash_size=self.hash_size)
+                return str(h)
+            finally:
+                img.close()
         except Exception as e:
             logger.warning(f"Failed to hash {image_path}: {e}")
             return None

@@ -207,48 +207,62 @@ pub fn start_indexing(
     let settings = db_guard.get_settings()?;
     drop(db_guard);
 
-    if !settings.photo_folder.is_empty() {
-        // Re-acquire lock for scan
-        let photo_files = crate::indexer::scan_photo_folder(&PathBuf::from(&settings.photo_folder))?;
-        let total = photo_files.len();
-        indexer_state.total.store(total, Ordering::Relaxed);
-        indexer_state.processed.store(0, Ordering::Relaxed);
-        indexer_state.is_running.store(true, Ordering::Relaxed);
+    // Use a closure to ensure is_running is always reset on exit
+    let result = (|| -> AppResult<()> {
+        if !settings.photo_folder.is_empty() {
+            // Re-acquire lock for scan
+            let photo_files = crate::indexer::scan_photo_folder(&PathBuf::from(&settings.photo_folder))?;
+            let total = photo_files.len();
+            indexer_state.total.store(total, Ordering::Relaxed);
+            indexer_state.processed.store(0, Ordering::Relaxed);
+            indexer_state.is_running.store(true, Ordering::Relaxed);
 
-        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
-        for (i, filepath) in photo_files.iter().enumerate() {
-            let filepath_str = filepath.to_string_lossy().to_string();
-            if !db_guard.photo_exists(&filepath_str)? {
-                crate::indexer::index_photo(&db_guard, filepath)?;
+            let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
+            for (i, filepath) in photo_files.iter().enumerate() {
+                let filepath_str = filepath.to_string_lossy().to_string();
+                if !db_guard.photo_exists(&filepath_str)? {
+                    crate::indexer::index_photo(&db_guard, filepath)?;
+                }
+                indexer_state.processed.store(i + 1, Ordering::Relaxed);
             }
-            indexer_state.processed.store(i + 1, Ordering::Relaxed);
+            drop(db_guard);
         }
-        drop(db_guard);
-    }
 
-    if !settings.log_folder.is_empty() {
-        let sessions = crate::indexer::process_log_files(&PathBuf::from(&settings.log_folder))?;
-        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
-        for session in &sessions {
-            let visit = WorldVisit {
-                id: uuid::Uuid::new_v4().to_string(),
-                world_name: session.world_name.clone(),
-                world_id: session.world_id.clone(),
-                entered_at: session.entered_at.clone(),
-                left_at: session.left_at.clone(),
-                players: session.players.clone(),
-                instance_type: session.instance_type.clone(),
-                rating: None,
-                notes: None,
-            };
-            db_guard.insert_world_visit(&visit)?;
+        if !settings.log_folder.is_empty() {
+            let sessions = crate::indexer::process_log_files(&PathBuf::from(&settings.log_folder))?;
+            let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
+            for session in &sessions {
+                let visit = WorldVisit {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    world_name: session.world_name.clone(),
+                    world_id: session.world_id.clone(),
+                    entered_at: session.entered_at.clone(),
+                    left_at: session.left_at.clone(),
+                    players: session.players.clone(),
+                    instance_type: session.instance_type.clone(),
+                    rating: None,
+                    notes: None,
+                };
+                db_guard.insert_world_visit(&visit)?;
+            }
+            crate::indexer::match_photos_to_sessions(&db_guard, &sessions)?;
         }
-        crate::indexer::match_photos_to_sessions(&db_guard, &sessions)?;
-    }
+
+        Ok(())
+    })();
 
     indexer_state.is_running.store(false, Ordering::Relaxed);
-    log::info!("Indexing completed");
-    Ok(())
+
+    match result {
+        Ok(()) => {
+            log::info!("Indexing completed");
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("Indexing failed: {}", e);
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]
@@ -402,6 +416,13 @@ pub fn update_friend_name(
     name: String,
     db: State<DbState>,
 ) -> AppResult<()> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Validation("Name cannot be empty".to_string()));
+    }
+    if name.len() > 200 {
+        return Err(AppError::Validation("Name too long (max 200 chars)".to_string()));
+    }
     let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_friend_name(&id, &name)
 }
@@ -414,6 +435,13 @@ pub fn add_avatar(
     name: String,
     db: State<DbState>,
 ) -> AppResult<Avatar> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Validation("Avatar name cannot be empty".to_string()));
+    }
+    if name.len() > 200 {
+        return Err(AppError::Validation("Avatar name too long (max 200 chars)".to_string()));
+    }
     let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.insert_avatar(&friend_id, &name)
 }
@@ -508,6 +536,13 @@ pub fn create_album(
     description: Option<String>,
     db: State<DbState>,
 ) -> AppResult<Album> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Validation("Album name cannot be empty".to_string()));
+    }
+    if name.len() > 200 {
+        return Err(AppError::Validation("Album name too long (max 200 chars)".to_string()));
+    }
     let album = Album {
         id: uuid::Uuid::new_v4().to_string(),
         name,
@@ -534,6 +569,13 @@ pub fn update_album(
     description: Option<String>,
     db: State<DbState>,
 ) -> AppResult<()> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Validation("Album name cannot be empty".to_string()));
+    }
+    if name.len() > 200 {
+        return Err(AppError::Validation("Album name too long (max 200 chars)".to_string()));
+    }
     let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.update_album(&id, &name, description.as_deref())
 }
