@@ -18,34 +18,53 @@
     {
       "identifier": "fs:allow-read",
       "allow": [
-        { "path": "$APPDATA/**" },
-        { "path": "$PICTURE/**" },
-        { "path": "$HOME/Pictures/**" },
-        { "path": "$HOME/AppData/LocalLow/VRChat/**" }
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$PICTURE/**"
+        },
+        {
+          "path": "$HOME/Pictures/**"
+        },
+        {
+          "path": "$HOME/AppData/LocalLow/VRChat/**"
+        }
       ]
     },
     {
       "identifier": "fs:allow-write",
       "allow": [
-        { "path": "$APPDATA/**" }
+        {
+          "path": "$APPDATA/**"
+        }
       ]
     },
     {
       "identifier": "fs:allow-exists",
       "allow": [
-        { "path": "$APPDATA/**" },
-        { "path": "$PICTURE/**" },
-        { "path": "$HOME/Pictures/**" },
-        { "path": "$HOME/AppData/LocalLow/VRChat/**" }
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$PICTURE/**"
+        },
+        {
+          "path": "$HOME/Pictures/**"
+        },
+        {
+          "path": "$HOME/AppData/LocalLow/VRChat/**"
+        }
       ]
     },
     {
       "identifier": "fs:allow-mkdir",
       "allow": [
-        { "path": "$APPDATA/**" }
+        {
+          "path": "$APPDATA/**"
+        }
       ]
     },
-    "updater:default",
     "process:allow-restart"
   ]
 }
