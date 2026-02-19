@@ -26,13 +26,18 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        // .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            if cfg!(debug_assertions) {
+            {
+                let log_level = if cfg!(debug_assertions) {
+                    log::LevelFilter::Info
+                } else {
+                    log::LevelFilter::Warn
+                };
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
+                        .level(log_level)
                         .build(),
                 )?;
             }
