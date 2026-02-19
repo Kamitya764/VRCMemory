@@ -29,7 +29,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": "v1Compatible",
     "resources": {
       "../python-sidecar/": "python-sidecar/"
     },
@@ -46,25 +45,25 @@
     "windows": {
       "nsis": {
         "displayLanguageSelector": true,
-        "languages": ["Japanese", "English"],
+        "languages": [
+          "Japanese",
+          "English"
+        ],
         "installMode": "currentUser"
       }
     },
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
       }
     }
   },
   "plugins": {
     "shell": {
       "open": true
-    },
-    "updater": {
-      "endpoints": [
-        "https://github.com/Kamitya764/VRCMemory/releases/latest/download/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgMUNBNzczNjUwRjEwRDE2MwpSV1JqMFJBUFpYT25IRWIwc2RnbkVCMjU2QXlKcmRLY24wSTFxQ2pUWjdEL3JGWXM3dUI2VFFMVQo="
     }
   }
 }
