@@ -15,7 +15,7 @@ impl Database {
     pub fn new(path: &Path) -> AppResult<Self> {
         let conn = Connection::open(path)?;
         // Enable WAL mode for concurrent read performance
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;")?;
         let db = Self { conn };
         db.initialize_tables()?;
         Ok(db)
@@ -493,11 +493,12 @@ impl Database {
         query: &str,
         limit: i64,
     ) -> AppResult<(Vec<Photo>, usize)> {
-        let search_pattern = format!("%{}%", query);
+        let escaped = query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let search_pattern = format!("%{}%", escaped);
 
         let total: usize = self.conn.query_row(
             "SELECT COUNT(*) FROM photos WHERE
-             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1 OR ocr_text LIKE ?1",
+             world_name LIKE ?1 ESCAPE '\\' OR caption LIKE ?1 ESCAPE '\\' OR tags LIKE ?1 ESCAPE '\\' OR filename LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\'",
             params![search_pattern],
             |row| row.get(0),
         )?;
@@ -505,7 +506,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at
              FROM photos WHERE
-             world_name LIKE ?1 OR caption LIKE ?1 OR tags LIKE ?1 OR filename LIKE ?1 OR ocr_text LIKE ?1
+             world_name LIKE ?1 ESCAPE '\\' OR caption LIKE ?1 ESCAPE '\\' OR tags LIKE ?1 ESCAPE '\\' OR filename LIKE ?1 ESCAPE '\\' OR ocr_text LIKE ?1 ESCAPE '\\'
              ORDER BY datetime DESC LIMIT ?2",
         )?;
 
@@ -529,8 +530,9 @@ impl Database {
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(world) = world_name {
-            conditions.push(format!("world_name LIKE ?{}", param_values.len() + 1));
-            param_values.push(Box::new(format!("%{}%", world)));
+            conditions.push(format!("world_name LIKE ?{} ESCAPE '\\'", param_values.len() + 1));
+            let escaped = world.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+            param_values.push(Box::new(format!("%{}%", escaped)));
         }
         if let Some(from) = date_from {
             conditions.push(format!("datetime >= ?{}", param_values.len() + 1));

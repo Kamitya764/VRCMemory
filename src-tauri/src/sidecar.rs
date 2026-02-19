@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use crate::error::{AppError, AppResult};
 
@@ -16,7 +17,11 @@ pub struct SidecarState {
 impl SidecarState {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(300)) // 5 min for AI operations
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             available: Mutex::new(None),
         }
     }
@@ -75,25 +80,45 @@ pub struct EmbedImageResult {
 }
 
 impl SidecarState {
+    /// Check HTTP response status and return an error for non-success codes
+    fn check_response(resp: &reqwest::Response, context: &str) -> AppResult<()> {
+        if !resp.status().is_success() {
+            return Err(AppError::Sidecar(format!(
+                "{}: HTTP {}",
+                context,
+                resp.status()
+            )));
+        }
+        Ok(())
+    }
+
     /// Check if the sidecar is running
     pub async fn check_health(&self) -> AppResult<HealthResponse> {
-        let resp = self
-            .client
-            .get(format!("{}/api/health", SIDECAR_URL))
-            .send()
-            .await
-            .map_err(|e| AppError::Sidecar(format!("Connection failed: {}", e)))?;
+        let result = async {
+            let resp = self
+                .client
+                .get(format!("{}/api/health", SIDECAR_URL))
+                .send()
+                .await
+                .map_err(|e| AppError::Sidecar(format!("Connection failed: {}", e)))?;
 
-        let health: HealthResponse = resp
-            .json()
-            .await
-            .map_err(|e| AppError::Sidecar(format!("Invalid response: {}", e)))?;
+            Self::check_response(&resp, "Health check")?;
 
+            let health: HealthResponse = resp
+                .json()
+                .await
+                .map_err(|e| AppError::Sidecar(format!("Invalid response: {}", e)))?;
+
+            Ok(health)
+        }
+        .await;
+
+        // Update availability cache based on result
         if let Ok(mut avail) = self.available.lock() {
-            *avail = Some(true);
+            *avail = Some(result.is_ok());
         }
 
-        Ok(health)
+        result
     }
 
     /// Generate captions for a batch of images
@@ -113,6 +138,8 @@ impl SidecarState {
             .await
             .map_err(|e| AppError::Sidecar(format!("Caption request failed: {}", e)))?;
 
+        Self::check_response(&resp, "Caption batch")?;
+
         resp.json()
             .await
             .map_err(|e| AppError::Sidecar(format!("Invalid caption response: {}", e)))
@@ -129,6 +156,8 @@ impl SidecarState {
             .send()
             .await
             .map_err(|e| AppError::Sidecar(format!("Embed text request failed: {}", e)))?;
+
+        Self::check_response(&resp, "Embed text")?;
 
         resp.json()
             .await
@@ -152,6 +181,8 @@ impl SidecarState {
             .await
             .map_err(|e| AppError::Sidecar(format!("Embed image request failed: {}", e)))?;
 
+        Self::check_response(&resp, "Embed image batch")?;
+
         resp.json()
             .await
             .map_err(|e| AppError::Sidecar(format!("Invalid embed response: {}", e)))
@@ -172,6 +203,8 @@ impl SidecarState {
             .await
             .map_err(|e| AppError::Sidecar(format!("Vector index request failed: {}", e)))?;
 
+        Self::check_response(&resp, "Vector index batch")?;
+
         resp.json()
             .await
             .map_err(|e| AppError::Sidecar(format!("Invalid vector index response: {}", e)))
@@ -191,6 +224,8 @@ impl SidecarState {
             .send()
             .await
             .map_err(|e| AppError::Sidecar(format!("Text index request failed: {}", e)))?;
+
+        Self::check_response(&resp, "Text index batch")?;
 
         resp.json()
             .await
@@ -218,6 +253,8 @@ impl SidecarState {
             .await
             .map_err(|e| AppError::Sidecar(format!("Hybrid search failed: {}", e)))?;
 
+        Self::check_response(&resp, "Hybrid search")?;
+
         resp.json()
             .await
             .map_err(|e| AppError::Sidecar(format!("Invalid search response: {}", e)))
@@ -231,6 +268,8 @@ impl SidecarState {
             .send()
             .await
             .map_err(|e| AppError::Sidecar(format!("Search status request failed: {}", e)))?;
+
+        Self::check_response(&resp, "Search status")?;
 
         resp.json()
             .await
@@ -249,6 +288,8 @@ impl SidecarState {
             .await
             .map_err(|e| AppError::Sidecar(format!("OCR batch request failed: {}", e)))?;
 
+        Self::check_response(&resp, "OCR batch")?;
+
         resp.json()
             .await
             .map_err(|e| AppError::Sidecar(format!("Invalid OCR response: {}", e)))
@@ -265,6 +306,8 @@ impl SidecarState {
             .send()
             .await
             .map_err(|e| AppError::Sidecar(format!("Hash batch request failed: {}", e)))?;
+
+        Self::check_response(&resp, "Hash batch")?;
 
         resp.json()
             .await
