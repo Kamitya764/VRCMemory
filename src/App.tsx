@@ -14,6 +14,7 @@ import ShortcutHelp from "@/components/ShortcutHelp";
 import UpdateChecker from "@/components/UpdateChecker";
 import { listen } from "@tauri-apps/api/event";
 import { getSettings, getPhotos, updateSettings } from "@/lib/api";
+import { PAGE_SIZE } from "@/lib/constants";
 import type { Photo } from "@/lib/api";
 
 export type View =
@@ -61,7 +62,7 @@ function App() {
 
   const loadPhotos = useCallback(async () => {
     try {
-      const result = await getPhotos(0, 100);
+      const result = await getPhotos(0, PAGE_SIZE);
       setPhotos(result.photos);
       setPhotoCount(result.total);
     } catch {
@@ -81,13 +82,21 @@ function App() {
 
   // Listen for watcher events to auto-refresh
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
     listen<number>("photos-updated", () => {
-      loadPhotos();
+      if (!cancelled) loadPhotos();
     }).then((fn) => {
-      unlisten = fn;
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     }).catch(() => {});
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [loadPhotos]);
 
   // Global keyboard shortcuts
@@ -135,7 +144,6 @@ function App() {
           <SetupWizard
             onComplete={() => {
               setNeedsSetup(false);
-              loadPhotos();
             }}
           />
         </div>
@@ -178,6 +186,7 @@ function App() {
           onClick={toggleTheme}
           className="rounded-lg p-1.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]"
           title={theme === "dark" ? "ライトモード" : "ダークモード"}
+          aria-label={theme === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
         >
           {theme === "dark" ? (
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">

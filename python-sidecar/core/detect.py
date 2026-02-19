@@ -55,3 +55,10 @@ class PersonDetector:
             return detections
         finally:
             image.close()
+
+    def close(self):
+        """Release model resources."""
+        if hasattr(self, "model"):
+            del self.model
+            self.model = None
+            logger.info("Detection model released")

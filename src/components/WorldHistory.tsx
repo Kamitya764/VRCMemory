@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getWorldHistory, updateWorldRating, updateWorldNotes } from "@/lib/api";
 import type { WorldVisit } from "@/lib/api";
+import { formatDateTimeShort, formatTime, calcDuration } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 
 function WorldHistory() {
@@ -96,7 +97,7 @@ function WorldHistory() {
                     )}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-2 text-xs text-[var(--color-text-muted)]">
-                    <span>{formatDateTime(visit.entered_at)}</span>
+                    <span>{formatDateTimeShort(visit.entered_at)}</span>
                     {visit.left_at && (
                       <span>
                         ~ {formatTime(visit.left_at)} (
@@ -277,46 +278,5 @@ function NotesEditor({
   );
 }
 
-function formatDateTime(ts: string): string {
-  try {
-    const normalized = ts.replace(/\./g, "-").replace(" ", "T");
-    const date = new Date(normalized);
-    return date.toLocaleString("ja-JP", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return ts;
-  }
-}
-
-function formatTime(ts: string): string {
-  try {
-    const normalized = ts.replace(/\./g, "-").replace(" ", "T");
-    const date = new Date(normalized);
-    return date.toLocaleTimeString("ja-JP", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return ts;
-  }
-}
-
-function calcDuration(start: string, end: string): string {
-  try {
-    const s = new Date(start.replace(/\./g, "-").replace(" ", "T"));
-    const e = new Date(end.replace(/\./g, "-").replace(" ", "T"));
-    const diffMin = Math.round((e.getTime() - s.getTime()) / 60000);
-    if (diffMin < 60) return `${diffMin}分`;
-    const hours = Math.floor(diffMin / 60);
-    const mins = diffMin % 60;
-    return `${hours}時間${mins > 0 ? `${mins}分` : ""}`;
-  } catch {
-    return "";
-  }
-}
 
 export default WorldHistory;

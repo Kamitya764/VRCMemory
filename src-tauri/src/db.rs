@@ -115,7 +115,7 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_photos_world_name ON photos(world_name);
             CREATE INDEX IF NOT EXISTS idx_world_visits_entered ON world_visits(entered_at);
             CREATE INDEX IF NOT EXISTS idx_avatars_friend ON avatars(friend_id);
-            CREATE INDEX IF NOT EXISTS idx_encounters_friend ON encounters(friend_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_encounters_unique ON encounters(friend_id, world_visit_id);
             CREATE INDEX IF NOT EXISTS idx_encounters_visit ON encounters(world_visit_id);
             CREATE INDEX IF NOT EXISTS idx_photos_image_hash ON photos(image_hash);
             ",
@@ -191,11 +191,11 @@ impl Database {
              FROM photos WHERE id = ?1",
         )?;
 
-        let result = stmt
-            .query_row(params![id], Self::row_to_photo)
-            .ok();
-
-        Ok(result)
+        match stmt.query_row(params![id], Self::row_to_photo) {
+            Ok(photo) => Ok(Some(photo)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     // World visit operations
@@ -763,6 +763,12 @@ impl Database {
             return Ok(0);
         }
 
+        // Build a HashMap for O(1) friend lookup by name
+        let friend_map: std::collections::HashMap<&str, &Friend> = friends
+            .iter()
+            .map(|f| (f.name.as_str(), f))
+            .collect();
+
         let mut stmt = self.conn.prepare(
             "SELECT id, world_name, world_id, entered_at, players FROM world_visits",
         )?;
@@ -782,22 +788,15 @@ impl Database {
 
         let result = (|| -> AppResult<usize> {
             for (visit_id, _world_name, _world_id, entered_at, players) in &visits {
-                for friend in &friends {
-                    if players.iter().any(|p| p == &friend.name) {
-                        let exists: bool = self.conn.query_row(
-                            "SELECT EXISTS(SELECT 1 FROM encounters WHERE friend_id = ?1 AND world_visit_id = ?2)",
-                            params![friend.id, visit_id],
-                            |row| row.get(0),
+                for player_name in players {
+                    if let Some(friend) = friend_map.get(player_name.as_str()) {
+                        let id = uuid::Uuid::new_v4().to_string();
+                        // INSERT OR IGNORE relies on the UNIQUE index on (friend_id, world_visit_id)
+                        let inserted = self.conn.execute(
+                            "INSERT OR IGNORE INTO encounters (id, friend_id, world_visit_id, met_at) VALUES (?1, ?2, ?3, ?4)",
+                            params![id, friend.id, visit_id, entered_at],
                         )?;
-
-                        if !exists {
-                            let id = uuid::Uuid::new_v4().to_string();
-                            self.conn.execute(
-                                "INSERT INTO encounters (id, friend_id, world_visit_id, met_at) VALUES (?1, ?2, ?3, ?4)",
-                                params![id, friend.id, visit_id, entered_at],
-                            )?;
-                            count += 1;
-                        }
+                        count += inserted;
                     }
                 }
             }
@@ -943,29 +942,55 @@ impl Database {
     }
 
     pub fn add_photos_to_album(&self, album_id: &str, photo_ids: &[String]) -> AppResult<usize> {
-        let mut added = 0;
-        for photo_id in photo_ids {
-            let result = self.conn.execute(
-                "INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?1, ?2)",
-                params![album_id, photo_id],
-            )?;
-            if result > 0 {
-                added += 1;
+        self.conn.execute_batch("BEGIN")?;
+        let result = (|| -> AppResult<usize> {
+            let mut added = 0;
+            for photo_id in photo_ids {
+                let result = self.conn.execute(
+                    "INSERT OR IGNORE INTO album_photos (album_id, photo_id) VALUES (?1, ?2)",
+                    params![album_id, photo_id],
+                )?;
+                if result > 0 {
+                    added += 1;
+                }
+            }
+            Ok(added)
+        })();
+        match result {
+            Ok(added) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(added)
+            }
+            Err(e) => {
+                self.conn.execute_batch("ROLLBACK").ok();
+                Err(e)
             }
         }
-        Ok(added)
     }
 
     pub fn remove_photos_from_album(&self, album_id: &str, photo_ids: &[String]) -> AppResult<usize> {
-        let mut removed = 0;
-        for photo_id in photo_ids {
-            let result = self.conn.execute(
-                "DELETE FROM album_photos WHERE album_id = ?1 AND photo_id = ?2",
-                params![album_id, photo_id],
-            )?;
-            removed += result;
+        self.conn.execute_batch("BEGIN")?;
+        let result = (|| -> AppResult<usize> {
+            let mut removed = 0;
+            for photo_id in photo_ids {
+                let result = self.conn.execute(
+                    "DELETE FROM album_photos WHERE album_id = ?1 AND photo_id = ?2",
+                    params![album_id, photo_id],
+                )?;
+                removed += result;
+            }
+            Ok(removed)
+        })();
+        match result {
+            Ok(removed) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(removed)
+            }
+            Err(e) => {
+                self.conn.execute_batch("ROLLBACK").ok();
+                Err(e)
+            }
         }
-        Ok(removed)
     }
 
     pub fn get_album_photos(&self, album_id: &str) -> AppResult<(Vec<Photo>, usize)> {

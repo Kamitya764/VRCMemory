@@ -10,6 +10,8 @@
   --color-text: #f8fafc;
   --color-text-muted: #94a3b8;
   --color-border: #334155;
+  --color-success: #86efac;
+  --color-error: #fca5a5;
 }
 
 [data-theme="light"] {
@@ -21,6 +23,8 @@
   --color-text: #0f172a;
   --color-text-muted: #64748b;
   --color-border: #e2e8f0;
+  --color-success: #15803d;
+  --color-error: #b91c1c;
 }
 
 body {

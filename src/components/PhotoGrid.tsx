@@ -6,9 +6,9 @@ import type { Album } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { PAGE_SIZE } from "@/lib/constants";
+import { formatDateLabel, formatDateFull } from "@/lib/format";
 import { showToast } from "@/lib/toast";
-
-const PAGE_SIZE = 60;
 
 type SortMode = "date_desc" | "date_asc" | "name_asc" | "name_desc";
 
@@ -517,7 +517,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
                 {photo.world_name || photo.filename}
               </p>
               <p className="text-xs text-white/70">
-                {formatDate(photo.datetime)}
+                {formatDateFull(photo.datetime)}
               </p>
             </div>
           </button>
@@ -581,41 +581,6 @@ function groupPhotosByDate(photos: Photo[]): DateGroup[] {
     label: formatDateLabel(date),
     photos: datePhotos,
   }));
-}
-
-function formatDateLabel(dateStr: string): string {
-  try {
-    const date = new Date(dateStr + "T00:00:00");
-    const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24),
-    );
-
-    if (diffDays === 0) return "今日";
-    if (diffDays === 1) return "昨日";
-    if (diffDays < 7) return `${diffDays}日前`;
-
-    return date.toLocaleDateString("ja-JP", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-function formatDate(datetime: string): string {
-  try {
-    const date = new Date(datetime);
-    return date.toLocaleDateString("ja-JP", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return datetime;
-  }
 }
 
 export default PhotoGrid;

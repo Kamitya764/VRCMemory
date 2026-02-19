@@ -11,9 +11,6 @@ pub enum AppError {
     #[error("Parse error: {0}")]
     Parse(String),
 
-    #[error("Image error: {0}")]
-    Image(String),
-
     #[error("Validation error: {0}")]
     Validation(String),
 
@@ -41,7 +38,6 @@ impl Serialize for AppError {
             AppError::Database(_) => "database",
             AppError::Io(_) => "io",
             AppError::Parse(_) => "parse",
-            AppError::Image(_) => "image",
             AppError::Validation(_) => "validation",
             AppError::Lock(_) => "lock",
             AppError::NotFound(_) => "not_found",

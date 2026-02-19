@@ -11,6 +11,7 @@ import {
 import type { Friend, Avatar } from "@/lib/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import FriendProfile from "@/components/FriendProfile";
+import { formatDateShort } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 
 function FriendManager() {
@@ -208,7 +209,7 @@ function FriendManager() {
           {friends.map((friend) => (
             <div
               key={friend.id}
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              className="group rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-hover)]"
             >
               <div className="flex items-center gap-3 p-3">
                 {/* Avatar placeholder */}
@@ -240,7 +241,7 @@ function FriendManager() {
                 </button>
 
                 <span className="text-xs text-[var(--color-text-muted)]">
-                  {formatDate(friend.created_at)}
+                  {formatDateShort(friend.created_at)}
                 </span>
 
                 <button
@@ -470,9 +471,11 @@ function InlineEdit({
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
+  const savedRef = useRef(false);
 
   useEffect(() => {
     if (editing && inputRef.current) {
+      savedRef.current = false;
       inputRef.current.focus();
       inputRef.current.select();
     }
@@ -504,12 +507,18 @@ function InlineEdit({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
+            savedRef.current = true;
             onSave(text);
             setEditing(false);
           }
-          if (e.key === "Escape") setEditing(false);
+          if (e.key === "Escape") {
+            savedRef.current = true;
+            setText(value);
+            setEditing(false);
+          }
         }}
         onBlur={() => {
+          if (savedRef.current) return;
           onSave(text);
           setEditing(false);
         }}
@@ -555,16 +564,5 @@ function NotesArea({
   );
 }
 
-function formatDate(datetime: string): string {
-  try {
-    const date = new Date(datetime);
-    return date.toLocaleDateString("ja-JP", {
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return "";
-  }
-}
 
 export default FriendManager;

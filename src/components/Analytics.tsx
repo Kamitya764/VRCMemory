@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getWorldHistory, getWorldHistoryFiltered, getPhotoStats, buildEncounters } from "@/lib/api";
+import { formatPlaytime } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 import type { WorldVisit, PhotoStats } from "@/lib/api";
 
@@ -504,13 +505,6 @@ function calcDurationMin(start: string, end: string): number {
   } catch {
     return 0;
   }
-}
-
-function formatPlaytime(minutes: number): string {
-  if (minutes < 60) return `${minutes}分`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}時間${mins > 0 ? `${mins}分` : ""}`;
 }
 
 export default Analytics;
