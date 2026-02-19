@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getPhotoDetail, updatePhotoTags } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
+import { formatDateTime } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 import type { Photo } from "@/lib/api";
 
@@ -96,6 +97,8 @@ function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProp
       onClick={handleBackdropClick}
       onKeyDown={handleKeyDown}
       role="dialog"
+      aria-modal="true"
+      aria-label="写真詳細"
       tabIndex={-1}
     >
       {/* Prev/Next arrow buttons */}
@@ -106,6 +109,7 @@ function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProp
             goToPrev();
           }}
           className="absolute left-4 z-10 rounded-full bg-black/50 p-2 text-white/70 transition-colors hover:bg-black/70 hover:text-white"
+          aria-label="前の写真"
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -119,6 +123,7 @@ function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProp
             goToNext();
           }}
           className="absolute right-4 z-10 rounded-full bg-black/50 p-2 text-white/70 transition-colors hover:bg-black/70 hover:text-white"
+          aria-label="次の写真"
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path d="M9 6L15 12L9 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -133,6 +138,7 @@ function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProp
             onClick={() => setFullscreen((prev) => !prev)}
             className="rounded-full bg-black/50 p-1.5 text-white/80 transition-colors hover:bg-black/70 hover:text-white"
             title={fullscreen ? "通常表示 (F)" : "フルスクリーン (F)"}
+            aria-label={fullscreen ? "通常表示" : "フルスクリーン"}
           >
             {fullscreen ? (
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -147,6 +153,7 @@ function PhotoDetail({ photoId, photoIds, onClose, onNavigate }: PhotoDetailProp
           <button
             onClick={onClose}
             className="rounded-full bg-black/50 p-1.5 text-white/80 transition-colors hover:bg-black/70 hover:text-white"
+            aria-label="閉じる"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -280,21 +287,6 @@ function MetadataField({
   );
 }
 
-function formatDateTime(datetime: string): string {
-  try {
-    const date = new Date(datetime);
-    return date.toLocaleString("ja-JP", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return datetime;
-  }
-}
-
 function TagEditor({
   photoId,
   tags,
@@ -306,6 +298,12 @@ function TagEditor({
 }) {
   const [input, setInput] = useState("");
   const [editing, setEditing] = useState(false);
+
+  // Reset editing state when navigating between photos
+  useEffect(() => {
+    setInput("");
+    setEditing(false);
+  }, [photoId]);
 
   const handleAdd = async () => {
     const tag = input.trim();

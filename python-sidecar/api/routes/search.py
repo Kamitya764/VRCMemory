@@ -173,12 +173,13 @@ def search_by_text(request: SearchByTextRequest):
 
     text_vector = engine.embed_text_clip(request.query)
     results = store.search(text_vector, limit=request.limit + request.offset)
+    total = len(results)
     # Apply offset for pagination
     paginated = results[request.offset:]
 
     return SearchResponse(
         results=[SearchResult(**r) for r in paginated],
-        total=len(paginated),
+        total=total,
     )
 
 
@@ -189,7 +190,7 @@ def search_text_only(request: SearchByTextRequest):
     if ts is None:
         return SearchResponse(results=[], total=0)
 
-    results = ts.search(request.query, limit=request.limit, offset=request.offset)
+    results = ts.search(request.query, limit=request.limit)
     return SearchResponse(
         results=[SearchResult(**r) for r in results],
         total=len(results),

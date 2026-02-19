@@ -55,8 +55,10 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
 
   // Listen for setup progress events
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
     listen<SetupProgressEvent>("setup-progress", (event) => {
+      if (cancelled) return;
       setEnvProgress(event.payload);
       if (event.payload.is_error) {
         setError(event.payload.message);
@@ -64,10 +66,17 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
       }
     })
       .then((fn) => {
-        unlisten = fn;
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
       })
       .catch(() => {});
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   const handleStartSetup = async () => {
@@ -159,7 +168,12 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const handleSkipLogs = async () => {
     setError(null);
-    await updateSettings({ log_folder: "" });
+    try {
+      await updateSettings({ log_folder: "" });
+    } catch (err) {
+      setError(`設定の保存に失敗しました: ${String(err)}`);
+      return;
+    }
     setStep("indexing");
 
     try {

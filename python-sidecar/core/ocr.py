@@ -141,3 +141,13 @@ class WorldNameOCR:
         if " - " in cleaned:
             cleaned = cleaned.split(" - ")[0].strip()
         return cleaned if cleaned else None
+
+    def close(self):
+        """Release OCR model resources."""
+        if self._manga_ocr is not None:
+            del self._manga_ocr
+            self._manga_ocr = None
+        if self._easyocr_reader is not None:
+            del self._easyocr_reader
+            self._easyocr_reader = None
+        logger.info("OCR models released")

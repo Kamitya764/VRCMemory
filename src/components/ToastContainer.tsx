@@ -37,9 +37,9 @@ function ToastContainer() {
 function colorClass(type: Toast["type"]): string {
   switch (type) {
     case "success":
-      return "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300";
+      return "border-green-500/30 bg-green-500/10 text-[var(--color-success)]";
     case "error":
-      return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
+      return "border-red-500/30 bg-red-500/10 text-[var(--color-error)]";
     default:
       return "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)]";
   }

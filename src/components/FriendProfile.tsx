@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Encounter, FriendStats } from "@/lib/api";
 import { getFriendEncounters, getFriendStats, buildEncounters } from "@/lib/api";
+import { formatDateShort } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 
 interface FriendProfileProps {
@@ -202,16 +203,5 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatDateShort(datetime: string): string {
-  try {
-    const date = new Date(datetime);
-    return date.toLocaleDateString("ja-JP", {
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return datetime;
-  }
-}
 
 export default FriendProfile;
