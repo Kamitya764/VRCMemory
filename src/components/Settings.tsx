@@ -57,10 +57,12 @@ function Settings() {
   const [servicesStatus, setServicesStatus] = useState<ServicesStatus | null>(null);
   const [envSetupRunning, setEnvSetupRunning] = useState(false);
   const indexPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
 
-  // Cleanup polling interval on unmount
+  // Cleanup polling interval and mounted flag on unmount
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       if (indexPollRef.current) {
         clearInterval(indexPollRef.current);
         indexPollRef.current = null;
@@ -117,6 +119,7 @@ function Settings() {
     setIndexStatus("インデックスを開始中...");
     try {
       await startIndexing();
+      if (!mountedRef.current) return;
       if (indexPollRef.current) clearInterval(indexPollRef.current);
       indexPollRef.current = setInterval(async () => {
         try {

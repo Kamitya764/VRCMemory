@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useId } from "react";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -22,6 +22,9 @@ function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const uniqueId = useId();
+  const titleId = `confirm-dialog-title-${uniqueId}`;
+  const messageId = `confirm-dialog-message-${uniqueId}`;
 
   useEffect(() => {
     if (open) {
@@ -53,12 +56,12 @@ function ConfirmDialog({
       }}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="confirm-dialog-title"
-      aria-describedby="confirm-dialog-message"
+      aria-labelledby={titleId}
+      aria-describedby={messageId}
     >
       <div className="w-full max-w-sm rounded-lg bg-[var(--color-surface)] p-6 shadow-xl">
-        <h3 id="confirm-dialog-title" className="text-lg font-semibold">{title}</h3>
-        <p id="confirm-dialog-message" className="mt-2 text-sm text-[var(--color-text-muted)]">{message}</p>
+        <h3 id={titleId} className="text-lg font-semibold">{title}</h3>
+        <p id={messageId} className="mt-2 text-sm text-[var(--color-text-muted)]">{message}</p>
         <div className="mt-5 flex justify-end gap-2">
           <button
             ref={cancelRef}

@@ -33,10 +33,12 @@ function ShortcutHelp({ open, onClose }: ShortcutHelpProps) {
         if (e.target === e.currentTarget) onClose();
       }}
       role="dialog"
+      aria-modal="true"
+      aria-labelledby="shortcut-help-title"
     >
       <div className="w-full max-w-md rounded-lg bg-[var(--color-surface)] p-6 shadow-xl">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">キーボードショートカット</h3>
+          <h3 id="shortcut-help-title" className="text-lg font-semibold">キーボードショートカット</h3>
           <button
             onClick={onClose}
             className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text)]"

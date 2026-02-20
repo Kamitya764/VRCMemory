@@ -165,7 +165,10 @@ pub fn run() {
             commands::get_services_status,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            log::error!("Failed to run tauri application: {}", e);
+            std::process::exit(1);
+        });
 }
 
 /// Start the folder watcher based on current settings

@@ -6,6 +6,7 @@
 
 import io
 import logging
+import threading
 
 import torch
 from PIL import Image
@@ -23,36 +24,45 @@ class EmbeddingEngine:
         self._text_tokenizer = None
         self._image_model = None
         self._image_processor = None
+        self._text_lock = threading.Lock()
+        self._image_lock = threading.Lock()
 
     def _load_text_model(self):
         if self._text_model is not None:
             return
+        with self._text_lock:
+            if self._text_model is not None:
+                return
 
-        from transformers import AutoModel, AutoTokenizer
+            from transformers import AutoModel, AutoTokenizer
 
-        logger.info(f"Loading text embedding model: {TEXT_MODEL}")
-        self._text_tokenizer = AutoTokenizer.from_pretrained(TEXT_MODEL)
-        self._text_model = AutoModel.from_pretrained(TEXT_MODEL).to(self.device)
-        self._text_model.eval()
-        logger.info("Text embedding model loaded")
+            logger.info(f"Loading text embedding model: {TEXT_MODEL}")
+            self._text_tokenizer = AutoTokenizer.from_pretrained(TEXT_MODEL)
+            self._text_model = AutoModel.from_pretrained(TEXT_MODEL).to(self.device)
+            self._text_model.eval()
+            logger.info("Text embedding model loaded")
 
     def _load_image_model(self):
         if self._image_model is not None:
             return
+        with self._image_lock:
+            if self._image_model is not None:
+                return
 
-        from transformers import CLIPModel, CLIPProcessor
+            from transformers import CLIPModel, CLIPProcessor
 
-        logger.info(f"Loading image embedding model: {IMAGE_MODEL}")
-        self._image_model = CLIPModel.from_pretrained(IMAGE_MODEL).to(self.device)
-        self._image_processor = CLIPProcessor.from_pretrained(IMAGE_MODEL)
-        self._image_model.eval()
-        logger.info("Image embedding model loaded")
+            logger.info(f"Loading image embedding model: {IMAGE_MODEL}")
+            self._image_model = CLIPModel.from_pretrained(IMAGE_MODEL).to(self.device)
+            self._image_processor = CLIPProcessor.from_pretrained(IMAGE_MODEL)
+            self._image_model.eval()
+            logger.info("Image embedding model loaded")
 
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    def embed_texts(self, texts: list[str], prefix: str = "query") -> list[list[float]]:
         """Generate text embeddings using multilingual-e5-large.
 
         Args:
             texts: List of text strings to embed
+            prefix: E5 prefix - "query" for search queries, "passage" for indexing documents
 
         Returns:
             List of embedding vectors (1024 dimensions each)
@@ -60,7 +70,7 @@ class EmbeddingEngine:
         self._load_text_model()
 
         # E5 models require "query: " or "passage: " prefix
-        prefixed = [f"query: {t}" for t in texts]
+        prefixed = [f"{prefix}: {t}" for t in texts]
 
         inputs = self._text_tokenizer(
             prefixed,

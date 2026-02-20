@@ -12,7 +12,7 @@ function ToastContainer() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed right-4 top-14 z-50 flex flex-col gap-2">
+    <div className="fixed right-4 top-14 z-50 flex flex-col gap-2" role="status" aria-live="polite">
       {toasts.map((toast) => (
         <div
           key={toast.id}

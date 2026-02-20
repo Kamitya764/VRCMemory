@@ -145,16 +145,22 @@ pub fn scan_photos(
     indexer_state.processed.store(0, Ordering::Relaxed);
     indexer_state.is_running.store(true, Ordering::Relaxed);
 
-    let db = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
     let mut indexed = 0;
+    let batch_size = 200;
 
-    for (i, filepath) in photo_files.iter().enumerate() {
-        let filepath_str = filepath.to_string_lossy().to_string();
-        if !db.photo_exists(&filepath_str)? {
-            crate::indexer::index_photo(&db, filepath)?;
-            indexed += 1;
+    for batch_start in (0..photo_files.len()).step_by(batch_size) {
+        let batch_end = (batch_start + batch_size).min(photo_files.len());
+        let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
+
+        for (i, filepath) in photo_files[batch_start..batch_end].iter().enumerate() {
+            let filepath_str = filepath.to_string_lossy().to_string();
+            if !db_guard.photo_exists(&filepath_str)? {
+                crate::indexer::index_photo(&db_guard, filepath)?;
+                indexed += 1;
+            }
+            indexer_state.processed.store(batch_start + i + 1, Ordering::Relaxed);
         }
-        indexer_state.processed.store(i + 1, Ordering::Relaxed);
+        // Lock is dropped here at end of each batch, allowing other commands
     }
 
     indexer_state.is_running.store(false, Ordering::Relaxed);
@@ -207,15 +213,17 @@ pub fn start_indexing(
     let settings = db_guard.get_settings()?;
     drop(db_guard);
 
-    // Use a closure to ensure is_running is always reset on exit
+    // Prevent double execution
+    if indexer_state.is_running.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        return Err(AppError::Validation("Indexing is already running".to_string()));
+    }
+
     let result = (|| -> AppResult<()> {
         if !settings.photo_folder.is_empty() {
-            // Re-acquire lock for scan
             let photo_files = crate::indexer::scan_photo_folder(&PathBuf::from(&settings.photo_folder))?;
             let total = photo_files.len();
             indexer_state.total.store(total, Ordering::Relaxed);
             indexer_state.processed.store(0, Ordering::Relaxed);
-            indexer_state.is_running.store(true, Ordering::Relaxed);
 
             let db_guard = db.0.lock().map_err(|e| crate::error::AppError::Lock(e.to_string()))?;
             for (i, filepath) in photo_files.iter().enumerate() {
@@ -458,6 +466,20 @@ pub fn add_avatar_reference(
     image_path: String,
     db: State<DbState>,
 ) -> AppResult<String> {
+    // Validate image path: must be absolute, no traversal, allowed extensions
+    let path = PathBuf::from(&image_path);
+    if !path.is_absolute() {
+        return Err(AppError::Validation("Path must be absolute".to_string()));
+    }
+    for component in path.components() {
+        if let std::path::Component::ParentDir = component {
+            return Err(AppError::Validation("Path traversal detected".to_string()));
+        }
+    }
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ["png", "jpg", "jpeg", "webp"].iter().any(|&a| ext.eq_ignore_ascii_case(a)) => {},
+        _ => return Err(AppError::Validation("File must be an image (png/jpg/jpeg/webp)".to_string())),
+    }
     let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
     db.add_avatar_reference(&avatar_id, &image_path)
 }
@@ -863,9 +885,15 @@ pub async fn ai_search(
         .map_err(|e| AppError::Lock(e.to_string()))?;
 
     let mut photos = Vec::new();
-    for id in &photo_ids {
-        if let Ok(Some(photo)) = db.get_photo_by_id(id) {
-            photos.push(photo);
+    if !photo_ids.is_empty() {
+        let all_photos = db.get_photos_by_ids(&photo_ids)?;
+        // Preserve search result ordering
+        let photo_map: std::collections::HashMap<String, Photo> =
+            all_photos.into_iter().map(|p| (p.id.clone(), p)).collect();
+        for id in &photo_ids {
+            if let Some(photo) = photo_map.get(id.as_str()) {
+                photos.push(photo.clone());
+            }
         }
     }
 
@@ -877,14 +905,16 @@ pub async fn ai_search(
 #[tauri::command]
 pub async fn index_photos_vectors(
     batch_size: Option<i64>,
+    offset: Option<i64>,
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<serde_json::Value> {
     let limit = batch_size.unwrap_or(50).min(500);
+    let start_offset = offset.unwrap_or(0).max(0);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
-        let (all_photos, _) = db.get_photos(0, limit)?;
+        let (all_photos, _) = db.get_photos(start_offset, limit)?;
         all_photos
     };
 
@@ -912,14 +942,16 @@ pub async fn index_photos_vectors(
 #[tauri::command]
 pub async fn index_photos_text(
     batch_size: Option<i64>,
+    offset: Option<i64>,
     db: State<'_, DbState>,
     sidecar: State<'_, SidecarState>,
 ) -> AppResult<serde_json::Value> {
     let limit = batch_size.unwrap_or(100).min(1000);
+    let start_offset = offset.unwrap_or(0).max(0);
 
     let photos = {
         let db = db.0.lock().map_err(|e| AppError::Lock(e.to_string()))?;
-        let (all_photos, _) = db.get_photos(0, limit)?;
+        let (all_photos, _) = db.get_photos(start_offset, limit)?;
         all_photos
     };
 

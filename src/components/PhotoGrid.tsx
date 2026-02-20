@@ -6,7 +6,7 @@ import type { Album } from "@/lib/api";
 import { toAssetUrl } from "@/lib/assets";
 import PhotoDetail from "@/components/PhotoDetail";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import { PAGE_SIZE } from "@/lib/constants";
+import { PAGE_SIZE, DEBOUNCE_SEARCH_MS } from "@/lib/constants";
 import { formatDateLabel, formatDateFull } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 
@@ -37,9 +37,23 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   const [filterDateTo, setFilterDateTo] = useState("");
   const [worldNames, setWorldNames] = useState<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const requestIdRef = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const albumPickerRef = useRef<HTMLDivElement>(null);
 
   const hasActiveFilters = filterWorld || filterDateFrom || filterDateTo;
+
+  // Close album picker on outside click
+  useEffect(() => {
+    if (!showAlbumPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (albumPickerRef.current && !albumPickerRef.current.contains(e.target as Node)) {
+        setShowAlbumPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAlbumPicker]);
 
   // Load world names for filter dropdown
   useEffect(() => {
@@ -48,9 +62,18 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     }
   }, [showFilters, worldNames.length]);
 
-  // Debounced search with filters
+  // Debounced search with filters and stale-response prevention
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    const currentRequestId = ++requestIdRef.current;
+
+    const applyResults = (resultPhotos: Photo[]) => {
+      if (requestIdRef.current !== currentRequestId) return; // stale
+      setDisplayPhotos(resultPhotos);
+      setVisibleCount(PAGE_SIZE);
+      setHasMore(resultPhotos.length > PAGE_SIZE);
+    };
 
     if (hasActiveFilters) {
       debounceRef.current = setTimeout(() => {
@@ -61,42 +84,30 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
           0,
           200,
         )
-          .then((result) => {
-            setDisplayPhotos(result.photos);
-            setVisibleCount(PAGE_SIZE);
-            setHasMore(result.photos.length > PAGE_SIZE);
-          })
-          .catch(() => setDisplayPhotos(photos));
-      }, 300);
+          .then((result) => applyResults(result.photos))
+          .catch(() => { if (requestIdRef.current === currentRequestId) setDisplayPhotos(photos); });
+      }, DEBOUNCE_SEARCH_MS);
     } else if (searchQuery.trim()) {
       debounceRef.current = setTimeout(() => {
         // Try AI hybrid search first, fallback to SQLite search
         aiSearch(searchQuery)
           .then((result) => {
+            if (requestIdRef.current !== currentRequestId) return;
             if (result.photos.length > 0) {
-              setDisplayPhotos(result.photos);
-              setVisibleCount(PAGE_SIZE);
-              setHasMore(result.photos.length > PAGE_SIZE);
+              applyResults(result.photos);
             } else {
-              // AI search returned nothing, try SQLite
               return searchPhotos(searchQuery).then((sqlResult) => {
-                setDisplayPhotos(sqlResult.photos);
-                setVisibleCount(PAGE_SIZE);
-                setHasMore(sqlResult.photos.length > PAGE_SIZE);
+                applyResults(sqlResult.photos);
               });
             }
           })
           .catch(() => {
-            // AI search unavailable, fallback to SQLite
+            if (requestIdRef.current !== currentRequestId) return;
             searchPhotos(searchQuery)
-              .then((result) => {
-                setDisplayPhotos(result.photos);
-                setVisibleCount(PAGE_SIZE);
-                setHasMore(result.photos.length > PAGE_SIZE);
-              })
-              .catch(() => setDisplayPhotos(photos));
+              .then((result) => applyResults(result.photos))
+              .catch(() => { if (requestIdRef.current === currentRequestId) setDisplayPhotos(photos); });
           });
-      }, 300);
+      }, DEBOUNCE_SEARCH_MS);
     } else {
       setDisplayPhotos(photos);
       setVisibleCount(PAGE_SIZE);
@@ -142,29 +153,39 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
 
   const photoIds = useMemo(() => visiblePhotos.map((p) => p.id), [visiblePhotos]);
 
+  const displayPhotosLengthRef = useRef(displayPhotos.length);
+  displayPhotosLengthRef.current = displayPhotos.length;
+
   const handleLoadMore = useCallback(async () => {
     if (loadingMore) return;
     setLoadingMore(true);
 
     if (!searchQuery.trim()) {
       try {
-        const result = await getPhotos(displayPhotos.length, PAGE_SIZE);
+        const currentLength = displayPhotosLengthRef.current;
+        const result = await getPhotos(currentLength, PAGE_SIZE);
         if (result.photos.length > 0) {
-          setDisplayPhotos((prev) => [...prev, ...result.photos]);
-          setHasMore(displayPhotos.length + result.photos.length < result.total);
+          setDisplayPhotos((prev) => {
+            const updated = [...prev, ...result.photos];
+            setHasMore(updated.length < result.total);
+            return updated;
+          });
         } else {
           setHasMore(false);
         }
       } catch {
-        // Error
+        // Error loading more photos
       }
     } else {
-      setVisibleCount((prev) => prev + PAGE_SIZE);
-      setHasMore(sortedPhotos.length > visibleCount + PAGE_SIZE);
+      setVisibleCount((prev) => {
+        const next = prev + PAGE_SIZE;
+        setHasMore(sortedPhotos.length > next);
+        return next;
+      });
     }
 
     setLoadingMore(false);
-  }, [loadingMore, searchQuery, displayPhotos.length, sortedPhotos.length, visibleCount]);
+  }, [loadingMore, searchQuery, sortedPhotos.length]);
 
   // IntersectionObserver for infinite scroll
   useEffect(() => {
@@ -185,7 +206,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
   }, [loadingMore, handleLoadMore]);
 
   // Selection helpers
-  const toggleSelection = (id: string) => {
+  const toggleSelection = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -195,16 +216,16 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
       }
       return next;
     });
-  };
+  }, []);
 
-  const clearSelection = () => {
+  const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     setSelectionMode(false);
-  };
+  }, []);
 
-  const selectAll = () => {
+  const selectAll = useCallback(() => {
     setSelectedIds(new Set(visiblePhotos.map((p) => p.id)));
-  };
+  }, [visiblePhotos]);
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
@@ -241,13 +262,15 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
     }
   };
 
-  const handlePhotoClick = (photo: Photo) => {
+  const handlePhotoClick = useCallback((photo: Photo) => {
     if (selectionMode) {
       toggleSelection(photo.id);
     } else {
       setSelectedPhotoId(photo.id);
     }
-  };
+  }, [selectionMode, toggleSelection]);
+
+  const closePhotoDetail = useCallback(() => setSelectedPhotoId(null), []);
 
   const viewLabels: Record<string, string> = {
     all: "すべての写真",
@@ -313,7 +336,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
               </button>
               {selectedIds.size > 0 && (
                 <>
-                  <div className="relative">
+                  <div className="relative" ref={albumPickerRef}>
                     <button
                       onClick={openAlbumPicker}
                       className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)]"
@@ -540,7 +563,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
       <PhotoDetail
         photoId={selectedPhotoId}
         photoIds={photoIds}
-        onClose={() => setSelectedPhotoId(null)}
+        onClose={closePhotoDetail}
         onNavigate={setSelectedPhotoId}
       />
 

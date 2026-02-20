@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { getWorldHistory, getWorldHistoryFiltered, getPhotoStats, buildEncounters } from "@/lib/api";
-import { formatPlaytime } from "@/lib/format";
+import { formatPlaytime, normalizeTimestamp } from "@/lib/format";
 import { showToast } from "@/lib/toast";
 import type { WorldVisit, PhotoStats } from "@/lib/api";
 
@@ -490,7 +490,7 @@ function parseHour(ts: string): number | null {
 
 function parseWeekday(ts: string): number | null {
   try {
-    const date = new Date(ts.replace(/\./g, "-").replace(" ", "T"));
+    const date = new Date(normalizeTimestamp(ts));
     return date.getDay();
   } catch {
     return null;
@@ -499,8 +499,8 @@ function parseWeekday(ts: string): number | null {
 
 function calcDurationMin(start: string, end: string): number {
   try {
-    const s = new Date(start.replace(/\./g, "-").replace(" ", "T"));
-    const e = new Date(end.replace(/\./g, "-").replace(" ", "T"));
+    const s = new Date(normalizeTimestamp(start));
+    const e = new Date(normalizeTimestamp(end));
     return Math.round((e.getTime() - s.getTime()) / 60000);
   } catch {
     return 0;

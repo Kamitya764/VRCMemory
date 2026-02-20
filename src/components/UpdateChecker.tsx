@@ -65,7 +65,12 @@ function UpdateChecker() {
   };
 
   const handleRelaunch = async () => {
-    await relaunch();
+    try {
+      await relaunch();
+    } catch (err) {
+      setError(String(err));
+      setStatus("error");
+    }
   };
 
   // Don't show anything if no update or dismissed

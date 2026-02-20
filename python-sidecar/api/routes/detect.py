@@ -41,6 +41,8 @@ class DetectionResponse(BaseModel):
 @router.post("/persons", response_model=DetectionResponse)
 def detect_persons(file: UploadFile = File(...)):
     """Detect persons/avatars in an uploaded image."""
+    if file.size is not None and file.size > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
     image_data = file.file.read()
     if len(image_data) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")

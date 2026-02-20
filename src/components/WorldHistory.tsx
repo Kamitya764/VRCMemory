@@ -193,6 +193,7 @@ function StarRating({
         <button
           key={star}
           onClick={() => onChange(value === star ? null : star)}
+          aria-label={`${star}つ星${value === star ? "を解除" : "に設定"}`}
           className={`text-lg transition-colors ${
             value !== null && star <= value
               ? "text-[var(--color-accent)]"
@@ -216,6 +217,13 @@ function NotesEditor({
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(value);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync internal text when external value changes (e.g., component reuse)
+  useEffect(() => {
+    if (!editing) {
+      setText(value);
+    }
+  }, [value, editing]);
 
   useEffect(() => {
     if (editing && inputRef.current) {

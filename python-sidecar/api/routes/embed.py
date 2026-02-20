@@ -36,6 +36,8 @@ def embed_text(request: TextEmbedRequest):
 @router.post("/image", response_model=EmbedResponse)
 def embed_image(file: UploadFile = File(...)):
     """Generate image embedding using Japanese CLIP."""
+    if file.size is not None and file.size > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
     image_data = file.file.read()
     if len(image_data) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
@@ -48,20 +50,31 @@ class BatchImageEmbedRequest(BaseModel):
     image_paths: list[str] = Field(..., max_length=MAX_BATCH_IMAGES)
 
 
-@router.post("/image/batch", response_model=EmbedResponse)
+class BatchImageEmbedResultItem(BaseModel):
+    path: str
+    vector: list[float] | None = None
+    error: str | None = None
+
+
+class BatchImageEmbedResponse(BaseModel):
+    results: list[BatchImageEmbedResultItem]
+    dimension: int
+
+
+@router.post("/image/batch", response_model=BatchImageEmbedResponse)
 def batch_embed_images(request: BatchImageEmbedRequest):
     """Generate image embeddings for multiple images."""
     engine = get_embedding_engine()
-    vectors = []
+    results = []
+    dimension = 0
     for path in request.image_paths:
         try:
             validated = validate_image_path(path)
-        except (ValueError, FileNotFoundError) as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        with open(validated, "rb") as f:
-            vector = engine.embed_image(f.read())
-        vectors.append(vector)
-    return EmbedResponse(
-        vectors=vectors,
-        dimension=len(vectors[0]) if vectors else 0,
-    )
+            with open(validated, "rb") as f:
+                vector = engine.embed_image(f.read())
+            results.append(BatchImageEmbedResultItem(path=path, vector=vector))
+            if dimension == 0 and vector:
+                dimension = len(vector)
+        except Exception as e:
+            results.append(BatchImageEmbedResultItem(path=path, error=str(e)))
+    return BatchImageEmbedResponse(results=results, dimension=dimension)

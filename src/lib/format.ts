@@ -4,7 +4,7 @@
  * Normalize VRChat-style timestamps (e.g., "2024.01.15 20:30:00")
  * to ISO-parseable format.
  */
-function normalizeTimestamp(ts: string): string {
+export function normalizeTimestamp(ts: string): string {
   return ts.replace(/\./g, "-").replace(" ", "T");
 }
 
@@ -121,8 +121,11 @@ export function formatDateLabel(dateStr: string): string {
   try {
     const date = new Date(dateStr + "T00:00:00");
     const now = new Date();
-    const diffDays = Math.floor(
-      (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24),
+    // Compare calendar dates by normalizing both to midnight
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dateMidnight = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.round(
+      (todayMidnight.getTime() - dateMidnight.getTime()) / (1000 * 60 * 60 * 24),
     );
 
     if (diffDays === 0) return "今日";

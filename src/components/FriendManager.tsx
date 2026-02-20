@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   getFriends,
   addFriend,
@@ -13,6 +13,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import FriendProfile from "@/components/FriendProfile";
 import { formatDateShort } from "@/lib/format";
 import { showToast } from "@/lib/toast";
+import { DEBOUNCE_NOTES_MS } from "@/lib/constants";
 
 function FriendManager() {
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -262,6 +263,7 @@ function FriendManager() {
                   }}
                   className="rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)] group-hover:opacity-100 [.group:hover>&]:opacity-100"
                   title="削除"
+                  aria-label="削除"
                 >
                   <svg
                     width="14"
@@ -471,11 +473,11 @@ function InlineEdit({
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
-  const savedRef = useRef(false);
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
     if (editing && inputRef.current) {
-      savedRef.current = false;
+      cancelledRef.current = false;
       inputRef.current.focus();
       inputRef.current.select();
     }
@@ -507,20 +509,22 @@ function InlineEdit({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
-            savedRef.current = true;
             onSave(text);
             setEditing(false);
           }
           if (e.key === "Escape") {
-            savedRef.current = true;
+            cancelledRef.current = true;
             setText(value);
             setEditing(false);
           }
         }}
         onBlur={() => {
-          if (savedRef.current) return;
-          onSave(text);
-          setEditing(false);
+          // Use requestAnimationFrame to ensure Escape's cancelledRef is set first
+          requestAnimationFrame(() => {
+            if (cancelledRef.current) return;
+            onSave(text);
+            setEditing(false);
+          });
         }}
         className="block w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-sm outline-none focus:border-[var(--color-primary)]"
       />
@@ -537,18 +541,30 @@ function NotesArea({
 }) {
   const [text, setText] = useState(value);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const onSaveRef = useRef(onSave);
+  const pendingTextRef = useRef<string | null>(null);
+  onSaveRef.current = onSave;
 
-  // Cleanup debounce timer on unmount to prevent stale saves
+  // Flush pending save on unmount, then clear timer
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        if (pendingTextRef.current !== null) {
+          onSaveRef.current(pendingTextRef.current);
+        }
+      }
     };
   }, []);
 
-  const debouncedSave = (newText: string) => {
+  const debouncedSave = useCallback((newText: string) => {
+    pendingTextRef.current = newText;
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => onSave(newText), 800);
-  };
+    timerRef.current = setTimeout(() => {
+      pendingTextRef.current = null;
+      onSaveRef.current(newText);
+    }, DEBOUNCE_NOTES_MS);
+  }, []);
 
   return (
     <textarea

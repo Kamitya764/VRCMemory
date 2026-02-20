@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   getAlbums,
   createAlbum,
@@ -191,6 +191,7 @@ function AlbumView() {
                 }}
                 className="absolute right-2 top-2 rounded bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
                 title="削除"
+                aria-label="削除"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                   <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -227,6 +228,8 @@ function AlbumDetail({
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
+  const albumPhotoIds = useMemo(() => photos.map((p) => p.id), [photos]);
+  const closeAlbumPhotoDetail = useCallback(() => setSelectedPhotoId(null), []);
 
   useEffect(() => {
     getAlbumPhotos(album.id)
@@ -240,6 +243,7 @@ function AlbumDetail({
       <div className="mb-4 flex items-center gap-3">
         <button
           onClick={onBack}
+          aria-label="アルバム一覧に戻る"
           className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text)]"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -296,8 +300,8 @@ function AlbumDetail({
 
       <PhotoDetail
         photoId={selectedPhotoId}
-        photoIds={photos.map((p) => p.id)}
-        onClose={() => setSelectedPhotoId(null)}
+        photoIds={albumPhotoIds}
+        onClose={closeAlbumPhotoDetail}
         onNavigate={setSelectedPhotoId}
       />
     </div>

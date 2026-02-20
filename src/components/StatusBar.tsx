@@ -1,15 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { getIndexingStatus, getSidecarStatus } from "@/lib/api";
 import type { SidecarStatus } from "@/lib/api";
-import { APP_VERSION } from "@/lib/constants";
+import { APP_VERSION, POLL_INDEXING_MS, POLL_IDLE_MS, POLL_SIDECAR_MS } from "@/lib/constants";
 
 interface StatusBarProps {
   photoCount: number;
 }
-
-const INDEXING_POLL_MS = 2000;
-const IDLE_POLL_MS = 15000;
-const SIDECAR_POLL_MS = 30000;
 
 function StatusBar({ photoCount }: StatusBarProps) {
   const [indexing, setIndexing] = useState({
@@ -19,6 +15,7 @@ function StatusBar({ photoCount }: StatusBarProps) {
   });
   const [sidecar, setSidecar] = useState<SidecarStatus | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const isRunningRef = useRef(false);
 
   useEffect(() => {
     // Check sidecar once on mount
@@ -27,49 +24,55 @@ function StatusBar({ photoCount }: StatusBarProps) {
       .catch(() => setSidecar({ available: false, gpu_available: false }));
   }, []);
 
-  // Adaptive polling: fast when indexing, slow when idle
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const status = await getIndexingStatus();
-        setIndexing((prev) => {
-          // Only update state if values actually changed
-          if (
-            prev.isRunning === status.is_running &&
-            prev.processed === status.processed &&
-            prev.total === status.total
-          ) {
-            return prev;
-          }
-          return {
-            isRunning: status.is_running,
-            processed: status.processed,
-            total: status.total,
-          };
-        });
-      } catch {
-        // Not running in Tauri
+  const poll = useCallback(async () => {
+    try {
+      const status = await getIndexingStatus();
+      const newIsRunning = status.is_running;
+
+      setIndexing((prev) => {
+        if (
+          prev.isRunning === status.is_running &&
+          prev.processed === status.processed &&
+          prev.total === status.total
+        ) {
+          return prev;
+        }
+        return {
+          isRunning: status.is_running,
+          processed: status.processed,
+          total: status.total,
+        };
+      });
+
+      // If running state changed, restart interval with appropriate speed
+      if (newIsRunning !== isRunningRef.current) {
+        isRunningRef.current = newIsRunning;
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        const nextInterval = newIsRunning ? POLL_INDEXING_MS : POLL_IDLE_MS;
+        intervalRef.current = setInterval(poll, nextInterval);
       }
-    };
+    } catch {
+      // Not running in Tauri
+    }
+  }, []);
 
-    // Initial check
+  // Single effect for indexing polling - no dependency on isRunning state
+  useEffect(() => {
     poll();
-
-    const currentInterval = indexing.isRunning ? INDEXING_POLL_MS : IDLE_POLL_MS;
-    intervalRef.current = setInterval(poll, currentInterval);
+    intervalRef.current = setInterval(poll, POLL_IDLE_MS);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [indexing.isRunning]);
+  }, [poll]);
 
-  // Re-check sidecar every 30s
+  // Re-check sidecar periodically
   useEffect(() => {
     const interval = setInterval(() => {
       getSidecarStatus()
         .then(setSidecar)
         .catch(() => setSidecar({ available: false, gpu_available: false }));
-    }, SIDECAR_POLL_MS);
+    }, POLL_SIDECAR_MS);
 
     return () => clearInterval(interval);
   }, []);

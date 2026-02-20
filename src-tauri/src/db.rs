@@ -198,6 +198,40 @@ impl Database {
         }
     }
 
+    pub fn get_photos_by_ids(&self, ids: &[String]) -> AppResult<Vec<Photo>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!(
+            "SELECT id, filepath, filename, datetime, world_name, world_id, tags, caption, thumbnail_path, ocr_text, image_hash, created_at FROM photos WHERE id IN ({})",
+            placeholders.join(",")
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let photos = stmt.query_map(params.as_slice(), |row| {
+            let tags_json: Option<String> = row.get(6)?;
+            let tags: Vec<String> = tags_json
+                .and_then(|j| serde_json::from_str(&j).ok())
+                .unwrap_or_default();
+            Ok(Photo {
+                id: row.get(0)?,
+                filepath: row.get(1)?,
+                filename: row.get(2)?,
+                datetime: row.get(3)?,
+                world_name: row.get(4)?,
+                world_id: row.get(5)?,
+                tags,
+                caption: row.get(7)?,
+                thumbnail_path: row.get(8)?,
+                ocr_text: row.get(9)?,
+                image_hash: row.get(10)?,
+                created_at: row.get(11)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+        Ok(photos)
+    }
+
     // World visit operations
     pub fn get_world_history(&self) -> AppResult<Vec<WorldVisit>> {
         let mut stmt = self.conn.prepare(

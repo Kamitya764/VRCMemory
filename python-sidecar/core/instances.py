@@ -68,15 +68,34 @@ def cleanup_all() -> None:
     """Release all model resources and GPU memory."""
     global _embedding_engine, _vector_store, _text_search, _text_search_failed
 
-    # Clean up route-level singletons that have close() methods
-    from api.routes.caption import _generator as caption_gen
-    from api.routes.detect import _detector as detector
+    # Clean up route-level singletons using module attribute access
+    # (not `from module import var`, which creates a local copy that
+    # doesn't reset the module-level variable)
+    import api.routes.caption as caption_mod
+    import api.routes.detect as detect_mod
+    import api.routes.ocr as ocr_mod
 
-    if caption_gen is not None:
+    if caption_mod._generator is not None:
         try:
-            caption_gen.close()
+            caption_mod._generator.close()
         except Exception as e:
             logger.warning(f"Failed to close caption generator: {e}")
+        caption_mod._generator = None
+
+    if detect_mod._detector is not None:
+        try:
+            detect_mod._detector.close()
+        except Exception as e:
+            logger.warning(f"Failed to close detector: {e}")
+        detect_mod._detector = None
+
+    if ocr_mod._ocr is not None:
+        try:
+            if hasattr(ocr_mod._ocr, "close"):
+                ocr_mod._ocr.close()
+        except Exception as e:
+            logger.warning(f"Failed to close OCR: {e}")
+        ocr_mod._ocr = None
 
     if _embedding_engine is not None:
         logger.info("Releasing embedding engine resources")
@@ -109,18 +128,18 @@ def cleanup_all() -> None:
 
 def get_loaded_models() -> list[str]:
     """Return list of currently loaded model names."""
-    from api.routes.caption import _generator as caption_gen
-    from api.routes.detect import _detector as detector
-    from api.routes.ocr import _ocr as ocr
+    import api.routes.caption as caption_mod
+    import api.routes.detect as detect_mod
+    import api.routes.ocr as ocr_mod
 
     models = []
-    if caption_gen is not None:
+    if caption_mod._generator is not None:
         models.append("caption")
     if _embedding_engine is not None:
         models.append("embed")
-    if detector is not None:
+    if detect_mod._detector is not None:
         models.append("detect")
-    if ocr is not None:
+    if ocr_mod._ocr is not None:
         models.append("ocr")
     if _vector_store is not None:
         models.append("vector_store")

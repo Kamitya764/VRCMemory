@@ -12,6 +12,7 @@ import SetupWizard from "@/components/SetupWizard";
 import ToastContainer from "@/components/ToastContainer";
 import ShortcutHelp from "@/components/ShortcutHelp";
 import UpdateChecker from "@/components/UpdateChecker";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { listen } from "@tauri-apps/api/event";
 import { getSettings, getPhotos, updateSettings } from "@/lib/api";
 import { PAGE_SIZE } from "@/lib/constants";
@@ -36,6 +37,7 @@ function App() {
   const [photoCount, setPhotoCount] = useState(0);
   const [theme, setTheme] = useState<Theme>("dark");
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const closeShortcutHelp = useCallback(() => setShowShortcutHelp(false), []);
 
   const applyTheme = useCallback((t: Theme) => {
     document.documentElement.setAttribute("data-theme", t);
@@ -208,10 +210,18 @@ function App() {
 
       <StatusBar photoCount={photoCount} />
       <ToastContainer />
-      <ShortcutHelp open={showShortcutHelp} onClose={() => setShowShortcutHelp(false)} />
+      <ShortcutHelp open={showShortcutHelp} onClose={closeShortcutHelp} />
       <UpdateChecker />
     </div>
   );
 }
 
-export default App;
+function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithErrorBoundary;

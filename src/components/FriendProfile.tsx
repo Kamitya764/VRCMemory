@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Encounter, FriendStats } from "@/lib/api";
 import { getFriendEncounters, getFriendStats, buildEncounters } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
@@ -14,6 +14,7 @@ function FriendProfile({ friendId, onClose }: FriendProfileProps) {
   const [encounters, setEncounters] = useState<Encounter[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -34,6 +35,16 @@ function FriendProfile({ friendId, onClose }: FriendProfileProps) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Focus close button on open and handle Escape key
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -56,6 +67,9 @@ function FriendProfile({ friendId, onClose }: FriendProfileProps) {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="friend-profile-title"
     >
       <div
         className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl"
@@ -70,7 +84,7 @@ function FriendProfile({ friendId, onClose }: FriendProfileProps) {
               </div>
             )}
             <div>
-              <h2 className="font-semibold">
+              <h2 id="friend-profile-title" className="font-semibold">
                 {stats?.friend_name || "読み込み中..."}
               </h2>
               {stats && (
@@ -81,7 +95,9 @@ function FriendProfile({ friendId, onClose }: FriendProfileProps) {
             </div>
           </div>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
+            aria-label="閉じる"
             className="rounded-lg p-1.5 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

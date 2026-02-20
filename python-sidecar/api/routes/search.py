@@ -190,10 +190,12 @@ def search_text_only(request: SearchByTextRequest):
     if ts is None:
         return SearchResponse(results=[], total=0)
 
-    results = ts.search(request.query, limit=request.limit)
+    results = ts.search(request.query, limit=request.limit + request.offset)
+    total = len(results)
+    paginated = results[request.offset:]
     return SearchResponse(
-        results=[SearchResult(**r) for r in results],
-        total=len(results),
+        results=[SearchResult(**r) for r in paginated],
+        total=total,
     )
 
 

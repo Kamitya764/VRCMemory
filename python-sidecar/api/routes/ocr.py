@@ -49,6 +49,8 @@ class OcrBatchResponse(BaseModel):
 @router.post("/world-name", response_model=OCRResponse)
 def read_world_name(file: UploadFile = File(...)):
     """Read the world name from a VRChat screenshot (bottom-left corner)."""
+    if file.size is not None and file.size > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
     image_data = file.file.read()
     if len(image_data) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")

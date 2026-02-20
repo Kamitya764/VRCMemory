@@ -48,6 +48,8 @@ class BatchCaptionResponse(BaseModel):
 @router.post("/generate", response_model=CaptionResponse)
 def generate_caption(file: UploadFile = File(...)):
     """Generate a caption for an uploaded image."""
+    if file.size is not None and file.size > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
     image_data = file.file.read()
     if len(image_data) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
