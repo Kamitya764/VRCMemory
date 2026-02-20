@@ -91,7 +91,7 @@ function WorldHistory() {
                       {visit.world_name || "不明なワールド"}
                     </h3>
                     {visit.rating !== null && (
-                      <span className="text-xs text-yellow-400">
+                      <span className="text-xs text-[var(--color-accent)]">
                         {"★".repeat(visit.rating)}
                       </span>
                     )}
@@ -195,8 +195,8 @@ function StarRating({
           onClick={() => onChange(value === star ? null : star)}
           className={`text-lg transition-colors ${
             value !== null && star <= value
-              ? "text-yellow-400"
-              : "text-[var(--color-text-muted)]/30 hover:text-yellow-400/50"
+              ? "text-[var(--color-accent)]"
+              : "text-[var(--color-text-muted)]/30 hover:text-[var(--color-accent)]/50"
           }`}
         >
           ★

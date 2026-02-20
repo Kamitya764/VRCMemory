@@ -349,7 +349,7 @@ function TagEditor({
             {editing && (
               <button
                 onClick={() => handleRemove(tag)}
-                className="ml-0.5 text-[var(--color-primary)] hover:text-red-400"
+                className="ml-0.5 text-[var(--color-primary)] hover:text-[var(--color-danger)]"
               >
                 x
               </button>

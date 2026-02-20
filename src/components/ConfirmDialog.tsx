@@ -42,8 +42,8 @@ function ConfirmDialog({
 
   const confirmClass =
     variant === "danger"
-      ? "bg-red-500 hover:bg-red-600 text-white"
-      : "bg-yellow-500 hover:bg-yellow-600 text-white";
+      ? "bg-[var(--color-danger)] hover:bg-[var(--color-danger-hover)] text-white"
+      : "bg-[var(--color-accent)] hover:bg-[var(--color-accent)]/80 text-white";
 
   return (
     <div

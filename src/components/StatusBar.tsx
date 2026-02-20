@@ -89,7 +89,7 @@ function StatusBar({ photoCount }: StatusBarProps) {
           <div className="flex items-center gap-1.5">
             <span
               className={`inline-block h-1.5 w-1.5 rounded-full ${
-                sidecar.available ? "bg-green-400" : "bg-neutral-500"
+                sidecar.available ? "bg-[var(--color-success)]" : "bg-[var(--color-text-muted)]"
               }`}
               aria-hidden="true"
             />

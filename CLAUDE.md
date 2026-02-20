@@ -336,14 +336,19 @@ App data:     %APPDATA%\VRCMemory\
 
 ```css
 /* Dark (default) */              /* Light */
---color-primary: #7c3aed          --color-primary: #7c3aed
---color-primary-hover: #6d28d9    --color-primary-hover: #6d28d9
---color-bg: #0f172a               --color-bg: #f8fafc
---color-surface: #1e293b          --color-surface: #ffffff
---color-surface-hover: #334155    --color-surface-hover: #f1f5f9
---color-text: #f8fafc             --color-text: #0f172a
---color-text-muted: #94a3b8      --color-text-muted: #64748b
---color-border: #334155           --color-border: #e2e8f0
+--color-primary: #d4849a          --color-primary: #bf6b85
+--color-primary-hover: #c4708a    --color-primary-hover: #a85872
+--color-bg: #131217               --color-bg: #f7f5f9
+--color-surface: #1c1a23          --color-surface: #ffffff
+--color-surface-hover: #262430    --color-surface-hover: #f0edf5
+--color-text: #e9e6f0             --color-text: #201c2b
+--color-text-muted: #8b879a      --color-text-muted: #79738a
+--color-border: #2a2834           --color-border: #e0dce8
+--color-success: #8bcfaa          --color-success: #2d8a5e
+--color-error: #e49590            --color-error: #c44e4e
+--color-accent: #dbb78d           --color-accent: #c49542
+--color-danger: #cf7b7b           --color-danger: #c44e4e
+--color-danger-hover: #b96666     --color-danger-hover: #a83c3c
 ```
 
 ---

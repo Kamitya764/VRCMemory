@@ -204,7 +204,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
   const renderEnvStepIcon = (done: boolean | undefined, active: boolean) => {
     if (done) {
       return (
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500/20 text-green-400 text-xs">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-success)]/20 text-[var(--color-success)] text-xs">
           ✓
         </span>
       );
@@ -277,7 +277,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                   </p>
                 </div>
                 {envStatus?.python_installed && (
-                  <span className="text-xs text-green-400">
+                  <span className="text-xs text-[var(--color-success)]">
                     インストール済み
                   </span>
                 )}
@@ -295,7 +295,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                   </p>
                 </div>
                 {envStatus?.meilisearch_installed && (
-                  <span className="text-xs text-green-400">
+                  <span className="text-xs text-[var(--color-success)]">
                     インストール済み
                   </span>
                 )}
@@ -313,7 +313,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                   </p>
                 </div>
                 {envStatus?.packages_installed && (
-                  <span className="text-xs text-green-400">
+                  <span className="text-xs text-[var(--color-success)]">
                     インストール済み
                   </span>
                 )}
@@ -344,7 +344,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               </div>
             )}
 
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
 
             <div className="flex justify-end gap-3">
               <button
@@ -414,7 +414,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               </p>
             </div>
 
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
 
             <div className="flex justify-end gap-3">
               <button
@@ -476,7 +476,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
               </p>
             </div>
 
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
 
             <div className="flex justify-end gap-3">
               <button
@@ -528,7 +528,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 <p>{indexingProgress.worldsFound} 件のワールド訪問を記録</p>
               )}
               {envStatus?.all_ready && (
-                <p className="text-green-400">AI検索が利用可能です</p>
+                <p className="text-[var(--color-success)]">AI検索が利用可能です</p>
               )}
               {!envStatus?.all_ready && (
                 <p className="text-xs">
@@ -536,7 +536,7 @@ function SetupWizard({ onComplete }: SetupWizardProps) {
                 </p>
               )}
             </div>
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
             <button
               onClick={onComplete}
               className="rounded-lg bg-[var(--color-primary)] px-8 py-2.5 font-medium text-white transition-colors hover:bg-[var(--color-primary-hover)]"

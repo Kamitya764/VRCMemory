@@ -163,7 +163,7 @@ function UpdateChecker() {
       {/* Error */}
       {status === "error" && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-red-400">
+          <h3 className="text-sm font-semibold text-[var(--color-error)]">
             アップデート失敗
           </h3>
           <p className="text-xs text-[var(--color-text-muted)]">{error}</p>

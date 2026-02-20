@@ -288,7 +288,7 @@ function Settings() {
           <div className="flex items-center gap-2">
             <span
               className={`inline-block h-2 w-2 rounded-full ${
-                envStatus?.all_ready ? "bg-green-400" : "bg-yellow-400"
+                envStatus?.all_ready ? "bg-[var(--color-success)]" : "bg-[var(--color-accent)]"
               }`}
             />
             <span className="text-xs text-[var(--color-text-muted)]">
@@ -299,13 +299,13 @@ function Settings() {
 
         <div className="space-y-2 text-sm text-[var(--color-text-muted)]">
           <div className="flex items-center gap-2">
-            <span className={envStatus?.python_installed ? "text-green-400" : "text-[var(--color-text-muted)]"}>
+            <span className={envStatus?.python_installed ? "text-[var(--color-success)]" : "text-[var(--color-text-muted)]"}>
               {envStatus?.python_installed ? "✓" : "○"} Python
             </span>
-            <span className={envStatus?.meilisearch_installed ? "text-green-400" : "text-[var(--color-text-muted)]"}>
+            <span className={envStatus?.meilisearch_installed ? "text-[var(--color-success)]" : "text-[var(--color-text-muted)]"}>
               {envStatus?.meilisearch_installed ? "✓" : "○"} Meilisearch
             </span>
-            <span className={envStatus?.packages_installed ? "text-green-400" : "text-[var(--color-text-muted)]"}>
+            <span className={envStatus?.packages_installed ? "text-[var(--color-success)]" : "text-[var(--color-text-muted)]"}>
               {envStatus?.packages_installed ? "✓" : "○"} AIパッケージ
             </span>
           </div>
@@ -377,7 +377,7 @@ function Settings() {
             <div className="flex items-center gap-2">
               <span
                 className={`inline-block h-2 w-2 rounded-full ${
-                  sidecar.available ? "bg-green-400" : "bg-red-400"
+                  sidecar.available ? "bg-[var(--color-success)]" : "bg-[var(--color-error)]"
                 }`}
               />
               <span className="text-xs text-[var(--color-text-muted)]">
@@ -430,7 +430,7 @@ function Settings() {
                 <span>テキスト: {searchIndex.total_documents}</span>
                 <span
                   className={`inline-block h-2 w-2 rounded-full ${
-                    searchIndex.meilisearch_available ? "bg-green-400" : "bg-yellow-400"
+                    searchIndex.meilisearch_available ? "bg-[var(--color-success)]" : "bg-[var(--color-accent)]"
                   }`}
                 />
               </div>

@@ -260,7 +260,7 @@ function FriendManager() {
                     e.stopPropagation();
                     setDeleteTarget(friend);
                   }}
-                  className="rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 [.group:hover>&]:opacity-100"
+                  className="rounded p-1 text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)] group-hover:opacity-100 [.group:hover>&]:opacity-100"
                   title="削除"
                 >
                   <svg
@@ -448,7 +448,7 @@ function AvatarRow({
       )}
       <button
         onClick={onDelete}
-        className="rounded p-0.5 text-[var(--color-text-muted)] transition-colors hover:text-red-400"
+        className="rounded p-0.5 text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-danger)]"
         title="削除"
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

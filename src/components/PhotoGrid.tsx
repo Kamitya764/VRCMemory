@@ -345,7 +345,7 @@ function PhotoGrid({ view, searchQuery, photos, onRefresh }: PhotoGridProps) {
                   </div>
                   <button
                     onClick={() => setShowDeleteConfirm(true)}
-                    className="rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                    className="rounded border border-[var(--color-danger)]/30 px-2 py-1 text-xs text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10"
                   >
                     削除
                   </button>
